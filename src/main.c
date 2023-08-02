@@ -9,6 +9,11 @@
 #include "usb_uart.h"
 #endif
 
+#ifndef SDCARD_H
+#define SDCARD_H 1
+#include "SDcard.h"
+#endif
+
 #include <nrfx_log.h>
 
 // Usual clock_rate
@@ -112,41 +117,45 @@ void main(void)
 		printk("%s is not ready\n", dmic_dev->name);
 		return 0;
 	}
-
-    struct pcm_stream_cfg stream = {
-		.pcm_width = SAMPLE_BIT_WIDTH,
-		.mem_slab  = &mem_slab,
-	};
-	struct dmic_cfg cfg = {
-		.io = {
-			/* These fields can be used to limit the PDM clock
-			 * configurations that the driver is allowed to use
-			 * to those supported by the microphone.
-			 */
-			.min_pdm_clk_freq = 1000000,
-			.max_pdm_clk_freq = 3500000,
-			.min_pdm_clk_dc   = 40,
-			.max_pdm_clk_dc   = 60,
-		},
-		.streams = &stream,
-		.channel = {
-			.req_num_streams = 1,
-		},
-	};
-
-    cfg.channel.req_num_chan = 1;
-	cfg.channel.req_chan_map_lo =
-		dmic_build_channel_map(0, 0, PDM_CHAN_LEFT);
-	cfg.streams[0].pcm_rate = MAX_SAMPLE_RATE;
-    
-	cfg.streams[0].block_size =
-		BLOCK_SIZE(cfg.streams[0].pcm_rate, cfg.channel.req_num_chan);
-
-	error = do_pdm_transfer(dmic_dev, &cfg, 2 * BLOCK_COUNT);
-	if (error < 0) {
-        printk("do_pdm_transfer error=%d\n",error);
+    if (!configure_streams(dmic_dev)) {
+        printk("Failed to config streams\n", dmic_dev->name);
 		return 0;
-	}
+    }
+
+    // struct pcm_stream_cfg stream = {
+	// 	.pcm_width = SAMPLE_BIT_WIDTH,
+	// 	.mem_slab  = &mem_slab,
+	// };
+	// struct dmic_cfg cfg = {
+	// 	.io = {
+	// 		/* These fields can be used to limit the PDM clock
+	// 		 * configurations that the driver is allowed to use
+	// 		 * to those supported by the microphone.
+	// 		 */
+	// 		.min_pdm_clk_freq = 1000000,
+	// 		.max_pdm_clk_freq = 3500000,
+	// 		.min_pdm_clk_dc   = 40,
+	// 		.max_pdm_clk_dc   = 60,
+	// 	},
+	// 	.streams = &stream,
+	// 	.channel = {
+	// 		.req_num_streams = 1,
+	// 	},
+	// };
+
+    // cfg.channel.req_num_chan = 1;
+	// cfg.channel.req_chan_map_lo =
+	// 	dmic_build_channel_map(0, 0, PDM_CHAN_LEFT);
+	// cfg.streams[0].pcm_rate = MAX_SAMPLE_RATE;
+    
+	// cfg.streams[0].block_size =
+	// 	BLOCK_SIZE(cfg.streams[0].pcm_rate, cfg.channel.req_num_chan);
+
+	// error = do_pdm_transfer(dmic_dev, &cfg, 2 * BLOCK_COUNT);
+	// if (error < 0) {
+    //     printk("do_pdm_transfer error=%d\n",error);
+	// 	return 0;
+	// }
 
     //////////////////////////////////////////////// Data
     uint8_t sensor_config[1];
@@ -156,7 +165,30 @@ void main(void)
     // ICM need init
     ICM_Init(i2c_dev2,ICM_ADDR);
 
+
+    // SD card
+	struct fs_file_t file;
+
+    setup_disk();
+
+    fs_file_t_init(&file);
+    printk("Opening file path\n");
+    char filename[30];
+	sprintf(&filename, "/SD:/audio001.txt"); 
+	error = fs_open(&file, filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening file [%03d]\n", error);
+			return 0;
+		}
+
+    printk("Streams started\n");
+    if (!trigger_command(dmic_dev, DMIC_TRIGGER_START)) {
+			return 0;
+		}
+
     // loop
+    int while_count = 0;
+    int while_end = 10000;
     while (1){
        
         // read sensor output
@@ -186,12 +218,41 @@ void main(void)
         // sensor_data[0]*AccelScale,sensor_data[1]*AccelScale,sensor_data[2]*AccelScale,
         // sensor_data[3]*GyroScale,sensor_data[4]*GyroScale,sensor_data[5]*GyroScale);
 
-    error = do_pdm_transfer(dmic_dev, &cfg, 2 * BLOCK_COUNT);
+    // error = do_pdm_transfer(dmic_dev, &cfg, 2 * BLOCK_COUNT);
+	// if (error < 0) {
+    //     printk("do_pdm_transfer error=%d\n",error);
+	// 	return 0;
+	// }
+
+    void *mem_block;
+	size_t block_size;
+
+	error = dmic_read(dmic_dev, 0, &mem_block, &block_size, READ_TIMEOUT);
 	if (error < 0) {
-        printk("do_pdm_transfer error=%d\n",error);
-		return 0;
+		printk("Failed to read dmic data and write block: %d\n", error);
+		return false;
 	}
 
-    // k_msleep(50);
+	error = fs_write(&file, mem_block, block_size);
+	if (error < 0) {
+		printk("Failed to write data in SD card: %d\n", error);
+		break;
+	}
+
+    k_mem_slab_free(&mem_slab,&mem_block);
+    // printk("k_mem_slab_num_free_get=%d\n",k_mem_slab_num_free_get(&mem_slab));
+    
+    if (while_count == while_end) {
+        if (!trigger_command(dmic_dev, DMIC_TRIGGER_STOP)) {
+			return 0;
+		}
+		printk("Stream stopped\n");
+
+		printk("File named \"audio001.txt\" successfully created\n");		
+		fs_close(&file);
+        lsdir(disk_mount_pt);
+        break;
+    }
+    while_count++;
     }
 }

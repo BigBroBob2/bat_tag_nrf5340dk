@@ -1,3 +1,9 @@
+/*
+Only one of the following peripherals can be enabled: SPI1, SPIM1, SPIS1, TWI1, TWIM1, TWIS1, UARTE1
+if instance x (where 0<=x<=3) is used by one of the peripherals, none of the other peripherals can use the same instance.
+https://devzone.nordicsemi.com/f/nordic-q-a/62899/nrf9160---only-one-of-the-following-peripherals-can-be-enabled-spi1-uarte1-why
+*/
+
 // MPU9265
 &i2c1 {
 	status = "okay";
@@ -20,7 +26,8 @@
 	clock-frequency = <100000>; 
 };
 
-// microphone
+//////////////////////////////// Microphone
+//////// PDM interface
 &clock {
 	hfclkaudio-frequency = <12288000>;
 };
@@ -31,6 +38,13 @@ dmic_dev: &pdm0 {
 	pinctrl-names = "default";
 	clock-source = "ACLK";
 };
+
+///////// I2S interface
+// i2s_dev: &i2s0 {
+// 	status = "okay";
+// 	pinctrl-0 = <&i2s0_default>;
+// 	pinctrl-names = "default";
+// };
 
 &pinctrl {
 	i2c1_default: i2c1_default{
@@ -69,6 +83,22 @@ dmic_dev: &pdm0 {
 				<NRF_PSEL(PDM_CLK, 0, 25)>;
 		};
 	};
+
+	// i2s0_default: i2s0_default{
+	// 	group1{
+	// 		psels = <NRF_PSEL(I2S_SCK_M,0,25)>,
+	// 				<NRF_PSEL(I2S_SDIN,0,26)>;
+					
+	// 	};
+	// };
+
+	spi3_default: spi3_default{
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 1, 4)>,
+					<NRF_PSEL(SPIM_MISO, 1, 6)>,
+					<NRF_PSEL(SPIM_MOSI, 1, 5)>;
+		};
+	};
 };
 
 // UART
@@ -80,4 +110,23 @@ dmic_dev: &pdm0 {
 	// cdc_acm_uart1 {
 	// 	compatible = "zephyr,cdc-acm-uart";
 	// };
+};
+
+
+// SD card with SPI interface
+&spi3 {
+	status = "okay";
+	cs-gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
+	pinctrl-0 = <&spi3_default>;
+	pinctrl-names = "default";
+	sdhc0: sdhc@0 {
+			compatible = "zephyr,sdhc-spi-slot";
+			reg = <0>;
+			status = "okay";
+			mmc {
+				compatible = "zephyr,sdmmc-disk";
+				status = "okay";
+			};
+			spi-max-frequency = <24000000>;
+	};
 };
