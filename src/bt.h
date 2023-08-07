@@ -60,6 +60,21 @@ static const struct bt_data sd[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_NUS_VAL),
 };
 
+//
+// Callback for MTU exchange, for updating max data length. The MTU must be
+// negotiated between the peripheral and central by sending packets back and
+// forth (which takes time), and this function gets called after that
+// negotiation process completes.
+//
+static void exchange_func(struct bt_conn *conn, uint8_t att_err,
+			  struct bt_gatt_exchange_params *params)
+{
+	printk("MTU exchange %s\n", att_err == 0 ? "successful" : "failed");
+
+	printk("   NEW Max transmission unit (#chars): %d  (%d)\n",
+		bt_nus_get_mtu(conn), bt_gatt_get_mtu(conn));
+}
+
 static void connected(struct bt_conn *conn, uint8_t err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -71,6 +86,11 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 	printk("Connected %s\n", addr);
+
+	// MUST be static, since it must be available after the function exits.
+	static struct bt_gatt_exchange_params exchange_params = {.func = exchange_func};
+	err = bt_gatt_exchange_mtu(conn, &exchange_params);
+	printk("exchange_mtu err: %d\n", err);
 
 	printk("Connected!! Max transmission unit (#chars): %d  (%d)\n",
 		bt_nus_get_mtu(conn), bt_gatt_get_mtu(conn));

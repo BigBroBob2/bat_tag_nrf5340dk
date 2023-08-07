@@ -259,16 +259,16 @@ void main(void)
        
         // read sensor output
         ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
-        printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
+        printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d",
         sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
 
         if (current_conn) {
-            uint8_t data[2];
-            data[0] = (uint8_t) (sensor_data[0] & 0xff);
-            data[1] = (uint8_t) (sensor_data[0] >> 8);
+            char data[128];
+            snprintf(data,128,"Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
+        sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
                       
             
-            error = bt_nus_send(NULL, data, 2);
+            error = bt_nus_send(NULL, data,128);
 		    if (error) {
 			    printk("Failed to send data:%d,%d over BLE connection, error=%d (enable notification if -128)\n",data[0],data[1],error);
 		    }
