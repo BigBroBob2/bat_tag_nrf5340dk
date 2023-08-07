@@ -64,13 +64,13 @@ static void setup_disk(void)
 
 		if (!IS_ENABLED(CONFIG_FILE_SYSTEM_LITTLEFS) &&
 	    !IS_ENABLED(CONFIG_FAT_FILESYSTEM_ELM)) {
-		LOG_INF("No file system selected");
+		printk("No file system selected\n");
 		return;
 	}
 
 	rc = mount_app_fs(mp);
 	if (rc < 0) {
-		LOG_ERR("Failed to mount filesystem");
+		printk("Failed to mount filesystem\n");
 		return;
 	}
 
@@ -95,7 +95,7 @@ static void setup_disk(void)
 	printk("%s opendir: %d\n", mp->mnt_point, rc);
 
 	if (rc < 0) {
-		LOG_ERR("Failed to open directory");
+		printk("Failed to open directory\n");
 	}
 
 	while (rc >= 0) {
@@ -103,7 +103,7 @@ static void setup_disk(void)
 
 		rc = fs_readdir(&dir, &ent);
 		if (rc < 0) {
-			LOG_ERR("Failed to read directory entries");
+			printk("Failed to read directory entries\n");
 			break;
 		}
 		if (ent.name[0] == 0) {

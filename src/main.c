@@ -4,9 +4,14 @@
 #include "mpu9265.h"
 #include "pdm_microphone.h"
 
-#ifndef USB_UART_H
-#define USB_UART_H 1
-#include "usb_uart.h"
+// #ifndef USB_UART_H
+// #define USB_UART_H 1
+// #include "usb_uart.h"
+// #endif
+
+#ifndef BT_H
+#define BT_H 1
+#include "bt.h"
 #endif
 
 #ifndef SDCARD_H
@@ -22,6 +27,8 @@ const int I2C_ClockRate =  100e3;
 // Usual timeout
 // use int64_t k_uptime_get() to returns the elapsed time since the system booted, in milliseconds
 const int I2C_BUS_TIMEOUT_us = 200 / (I2C_ClockRate / 400e3);
+
+
 
 void main(void)
 {   
@@ -39,11 +46,11 @@ void main(void)
 
     //////////////////////////////////////// USB
     // need to enable USB
-    error = usb_enable(NULL);
+    // error = usb_enable(NULL);
 
     // Set up our UART DMA callback function (this is a Zephyr thing).
 	
-    uart_callback_set(COM12, UART_Callback, NULL);
+    // uart_callback_set(COM12, UART_Callback, NULL);
 
     ////////////////////////////////////////////  I2C devices
     printk("The I2C scanner started\n");
@@ -167,43 +174,116 @@ void main(void)
 
 
     // SD card
-	struct fs_file_t file;
+	// struct fs_file_t file;
 
-    setup_disk();
+    // setup_disk();
 
-    fs_file_t_init(&file);
-    printk("Opening file path\n");
-    char filename[30];
-	sprintf(&filename, "/SD:/audio001.txt"); 
-	error = fs_open(&file, filename, FS_O_CREATE | FS_O_WRITE);
-    if (error) {
-			printk("Error opening file [%03d]\n", error);
-			return 0;
-		}
+    // fs_file_t_init(&file);
+    // printk("Opening file path\n");
+    // char filename[30];
+	// sprintf(&filename, "/SD:/audio001.txt"); 
+	// error = fs_open(&file, filename, FS_O_CREATE | FS_O_WRITE);
+    // if (error) {
+	// 		printk("Error opening file [%03d]\n", error);
+	// 		return 0;
+	// 	}
 
-    printk("Streams started\n");
-    if (!trigger_command(dmic_dev, DMIC_TRIGGER_START)) {
-			return 0;
-		}
+    // printk("Streams started\n");
+    // if (!trigger_command(dmic_dev, DMIC_TRIGGER_START)) {
+	// 		return 0;
+	// 	}
+
+    //////////////////////////////////////////////// bluetooth uart 
+    //// init button
+    error = dk_buttons_init(button_changed);
+	if (error) {
+		printk("Cannot init buttons (error: %d)\n", error);
+	}
+
+    //// init led
+    error = dk_leds_init();
+	if (error) {
+		printk("Cannot init LEDs (error: %d)\n", error);
+	}
+
+    // error = bt_uart_init();
+    // if (error) {
+	// 	led_show_error();
+	// }
+
+    // error = bt_conn_auth_cb_register(&conn_auth_callbacks);
+	// if (error) {
+	// 	printk("Failed to register authorization callbacks.\n");
+	// 	return 0;
+	// }
+
+	// error = bt_conn_auth_info_cb_register(&conn_auth_info_callbacks);
+	// if (error) {
+	// 	printk("Failed to register authorization info callbacks.\n");
+	// 	return 0;
+	// }
+
+    error = bt_enable(NULL);
+	if (error) {
+		led_show_error();
+	}
+
+    printk("Bluetooth initialized\n");
+
+    k_sem_give(&ble_init_ok);
+
+    settings_load();
+
+    error = bt_nus_init(&nus_cb);
+	if (error) {
+		printk("Failed to initialize UART service (error: %d)\n", error);
+		return 0;
+	}
+
+
+    // start advertising
+    error = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
+			      ARRAY_SIZE(sd));
+	if (error) {
+		printk("Advertising failed to start (error %d)\n", error);
+		return 0;
+	}
 
     // loop
     int while_count = 0;
     int while_end = 10000;
+
+    int blink_status = 0;
+    char addr[BT_ADDR_LE_STR_LEN];
     while (1){
        
         // read sensor output
-        // ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
-        // printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
-        // sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
+        ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
+        printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
+        sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
+
+        if (current_conn) {
+            uint8_t data[2];
+            data[0] = (uint8_t) (sensor_data[0] & 0xff);
+            data[1] = (uint8_t) (sensor_data[0] >> 8);
+                      
+            
+            error = bt_nus_send(NULL, data, 2);
+		    if (error) {
+			    printk("Failed to send data:%d,%d over BLE connection, error=%d (enable notification if -128)\n",data[0],data[1],error);
+		    }
+            else {
+                printk("BLE send data success!\n");
+            }
+
+        }
+
+        dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
+		k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
 
         /* check sensor_config is on*/
         // check register bank from 0 (default) to 1, then back to 0
         // ICM_ReadSensorConfig(i2c_dev2,sensor_config,ICM_ADDR);
-
-        // MPU_ReadSensor(i2c_dev1,sensor_data,MPU_ADDR);
-        /* ICM42688 cannot return correct data, always -32768 */
-        // ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
-
 
         /* output sensor data*/        
         // printk("Data from MPU9265: acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
@@ -224,35 +304,42 @@ void main(void)
 	// 	return 0;
 	// }
 
-    void *mem_block;
-	size_t block_size;
+    /////////////////////////
+    //   PDM microphone    //
+    /////////////////////////
 
-	error = dmic_read(dmic_dev, 0, &mem_block, &block_size, READ_TIMEOUT);
-	if (error < 0) {
-		printk("Failed to read dmic data and write block: %d\n", error);
-		return false;
-	}
+    // void *mem_block;
+	// size_t block_size;
 
-	error = fs_write(&file, mem_block, block_size);
-	if (error < 0) {
-		printk("Failed to write data in SD card: %d\n", error);
-		break;
-	}
+	// error = dmic_read(dmic_dev, 0, &mem_block, &block_size, READ_TIMEOUT);
+	// if (error < 0) {
+	// 	printk("Failed to read dmic data and write block: %d\n", error);
+	// 	return false;
+	// }
 
-    k_mem_slab_free(&mem_slab,&mem_block);
-    // printk("k_mem_slab_num_free_get=%d\n",k_mem_slab_num_free_get(&mem_slab));
+	// error = fs_write(&file, mem_block, block_size);
+	// if (error < 0) {
+	// 	printk("Failed to write data in SD card: %d\n", error);
+	// 	break;
+	// }
+
+    // k_mem_slab_free(&mem_slab,&mem_block);
+    // // printk("k_mem_slab_num_free_get=%d\n",k_mem_slab_num_free_get(&mem_slab));
     
-    if (while_count == while_end) {
-        if (!trigger_command(dmic_dev, DMIC_TRIGGER_STOP)) {
-			return 0;
-		}
-		printk("Stream stopped\n");
+    // if (while_count == while_end) {
+    //     if (!trigger_command(dmic_dev, DMIC_TRIGGER_STOP)) {
+	// 		return 0;
+	// 	}
+	// 	printk("Stream stopped\n");
 
-		printk("File named \"audio001.txt\" successfully created\n");		
-		fs_close(&file);
-        lsdir(disk_mount_pt);
-        break;
-    }
-    while_count++;
+	// 	printk("File named \"audio001.txt\" successfully created\n");		
+	// 	fs_close(&file);
+    //     lsdir(disk_mount_pt);
+    //     break;
+    // }
+    // while_count++;
+
+
+
     }
 }

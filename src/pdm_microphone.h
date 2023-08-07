@@ -8,10 +8,10 @@
 
 #include <zephyr/audio/dmic.h>
 
-#ifndef USB_UART_H
-#define USB_UART_H 1
-#include "usb_uart.h"
-#endif
+// #ifndef USB_UART_H
+// #define USB_UART_H 1
+// #include "usb_uart.h"
+// #endif
 
 #ifndef SDCARD_H
 #define SDCARD_H 1
@@ -146,68 +146,68 @@ static bool trigger_command(const struct device *dmic_dev, enum dmic_trigger cmd
 }
 
 
-static int do_pdm_transfer(const struct device *dmic_dev,
-			   struct dmic_cfg *cfg,
-			   size_t block_count)
-{
-	int error;
+// static int do_pdm_transfer(const struct device *dmic_dev,
+// 			   struct dmic_cfg *cfg,
+// 			   size_t block_count)
+// {
+// 	int error;
 
-	printk("PCM output rate: %u, channels: %u\n",
-		cfg->streams[0].pcm_rate, cfg->channel.req_num_chan);
+// 	printk("PCM output rate: %u, channels: %u\n",
+// 		cfg->streams[0].pcm_rate, cfg->channel.req_num_chan);
 
-	error = dmic_configure(dmic_dev, cfg);
-	if (error < 0) {
-		printk("Failed to configure the driver: %d\n", error);
-		return error;
-	}
+// 	error = dmic_configure(dmic_dev, cfg);
+// 	if (error < 0) {
+// 		printk("Failed to configure the driver: %d\n", error);
+// 		return error;
+// 	}
 
-	error = dmic_trigger(dmic_dev, DMIC_TRIGGER_START);
-	if (error < 0) {
-		printk("START trigger failed: %d\n", error);
-		return error;
-	}
+// 	error = dmic_trigger(dmic_dev, DMIC_TRIGGER_START);
+// 	if (error < 0) {
+// 		printk("START trigger failed: %d\n", error);
+// 		return error;
+// 	}
 
-	for (int i = 0; i < block_count; ++i) {
-		void *buffer;
-		uint32_t size;
-		int error;
+// 	for (int i = 0; i < block_count; ++i) {
+// 		void *buffer;
+// 		uint32_t size;
+// 		int error;
 
-		error = dmic_read(dmic_dev, 0, &buffer, &size, READ_TIMEOUT);
-		if (error < 0) {
-			printk("%d - read failed: %d\n", i, error);
-			return error;
-		}
+// 		error = dmic_read(dmic_dev, 0, &buffer, &size, READ_TIMEOUT);
+// 		if (error < 0) {
+// 			printk("%d - read failed: %d\n", i, error);
+// 			return error;
+// 		}
 
-		printk("%d - got buffer %p of %u bytes\n", i, buffer, size);
+// 		printk("%d - got buffer %p of %u bytes\n", i, buffer, size);
 
-        PDM_WriteBufBinary(buffer,size);
+//         PDM_WriteBufBinary(buffer,size);
 
-		k_mem_slab_free(&mem_slab, &buffer);
-	}
+// 		k_mem_slab_free(&mem_slab, &buffer);
+// 	}
 
-	error = dmic_trigger(dmic_dev, DMIC_TRIGGER_STOP);
-	if (error < 0) {
-		printk("STOP trigger failed: %d\n", error);
-		return error;
-	}
+// 	error = dmic_trigger(dmic_dev, DMIC_TRIGGER_STOP);
+// 	if (error < 0) {
+// 		printk("STOP trigger failed: %d\n", error);
+// 		return error;
+// 	}
 
-	return error;
-}
+// 	return error;
+// }
 
-void PDM_WriteBufBinary(int16_t *buf, uint32_t size){
+// void PDM_WriteBufBinary(int16_t *buf, uint32_t size){
 
-    uint32_t N;
+//     uint32_t N;
 
-    uart_poll_out(COM12, 0xff);
-	uart_poll_out(COM12, 0xff);
+//     uart_poll_out(COM12, 0xff);
+// 	uart_poll_out(COM12, 0xff);
 
-    N = size;
-    for(int r=0;r<N;r++) {
-        uart_poll_out(COM12,buf[r]);
-    }
+//     N = size;
+//     for(int r=0;r<N;r++) {
+//         uart_poll_out(COM12,buf[r]);
+//     }
 
 
-}
+// }
 
 ////////////////////////////////////////////////////////////
 // I2S interface for PDM microphone
