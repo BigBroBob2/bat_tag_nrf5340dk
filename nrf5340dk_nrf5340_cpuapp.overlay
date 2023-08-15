@@ -28,23 +28,18 @@ https://devzone.nordicsemi.com/f/nordic-q-a/62899/nrf9160---only-one-of-the-foll
 
 //////////////////////////////// Microphone
 //////// PDM interface
-&clock {
-	hfclkaudio-frequency = <12288000>;
-};
+// &clock {
+// 	hfclkaudio-frequency = <11289600>;
+// };
 
-dmic_dev: &pdm0 {
-	status = "okay";
-	pinctrl-0 = <&pdm0_default>;
-	pinctrl-names = "default";
-	clock-source = "ACLK";
-};
 
 ///////// I2S interface
-// i2s_dev: &i2s0 {
-// 	status = "okay";
-// 	pinctrl-0 = <&i2s0_default>;
-// 	pinctrl-names = "default";
-// };
+i2s_rx_dev: &i2s0 {
+	status = "okay";
+	pinctrl-0 = <&i2s0_default>;
+	pinctrl-names = "default";
+	// clock-source = "ACLK";
+};
 
 &pinctrl {
 	i2c1_default: i2c1_default{
@@ -77,20 +72,19 @@ dmic_dev: &pdm0 {
 		};
 	};
 
-	pdm0_default: pdm0_default{
+
+	// We now use I2S interface instead of PDM to get bit stream
+	i2s0_default: i2s0_default{
 		group1{
-			psels = <NRF_PSEL(PDM_DIN, 0, 26)>,
-				<NRF_PSEL(PDM_CLK, 0, 25)>;
+			// need to define MCK, LRCK_M, even though we don't wire them with PDM mic
+			// otherwise I2S driver will not work
+			psels = <NRF_PSEL(I2S_MCK,1,9)>,
+					<NRF_PSEL(I2S_SCK_M,1,10)>,
+					<NRF_PSEL(I2S_LRCK_M,1,11)>,
+					// <NRF_PSEL(I2S_SDOUT,1,12)>,
+					<NRF_PSEL(I2S_SDIN,1,13)>;				
 		};
 	};
-
-	// i2s0_default: i2s0_default{
-	// 	group1{
-	// 		psels = <NRF_PSEL(I2S_SCK_M,0,25)>,
-	// 				<NRF_PSEL(I2S_SDIN,0,26)>;
-					
-	// 	};
-	// };
 
 	spi3_default: spi3_default{
 		group1 {
@@ -106,10 +100,6 @@ dmic_dev: &pdm0 {
 	cdc_acm_uart0: cdc_acm_uart0 {
 		compatible = "zephyr,cdc-acm-uart";
 	};
-
-	// cdc_acm_uart1 {
-	// 	compatible = "zephyr,cdc-acm-uart";
-	// };
 };
 
 

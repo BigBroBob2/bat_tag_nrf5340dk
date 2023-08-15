@@ -28,7 +28,7 @@ const int I2C_ClockRate =  100e3;
 // use int64_t k_uptime_get() to returns the elapsed time since the system booted, in milliseconds
 const int I2C_BUS_TIMEOUT_us = 200 / (I2C_ClockRate / 400e3);
 
-
+static struct fs_file_t file;
 
 void main(void)
 {   
@@ -115,54 +115,22 @@ void main(void)
         }
     }
 
-    //////////////////////////////////////////////// try dmic sample
-    // https://github.com/zephyrproject-rtos/zephyr/blob/main/samples/drivers/audio/dmic/src/main.c
+    //////////////////////////////////////////////// I2S for PDM mic
 
-    const struct device *const dmic_dev = DEVICE_DT_GET(DT_NODELABEL(dmic_dev));
+    const struct device *const i2s_rx_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_rx_dev));
 
-    if (!device_is_ready(dmic_dev)) {
-		printk("%s is not ready\n", dmic_dev->name);
-		return 0;
+    if (!device_is_ready(i2s_rx_dev)) {
+		printk("unable to find i2s_rx device\n");	
 	}
-    if (!configure_streams(dmic_dev)) {
-        printk("Failed to config streams\n", dmic_dev->name);
+    printk("I2S device is ready\n");
+
+    if (!configure_i2s_rx(i2s_rx_dev)) {
+        printk("Failed to config streams\n", i2s_rx_dev->name);
 		return 0;
     }
+    printk("I2S configured\n");
 
-    // struct pcm_stream_cfg stream = {
-	// 	.pcm_width = SAMPLE_BIT_WIDTH,
-	// 	.mem_slab  = &mem_slab,
-	// };
-	// struct dmic_cfg cfg = {
-	// 	.io = {
-	// 		/* These fields can be used to limit the PDM clock
-	// 		 * configurations that the driver is allowed to use
-	// 		 * to those supported by the microphone.
-	// 		 */
-	// 		.min_pdm_clk_freq = 1000000,
-	// 		.max_pdm_clk_freq = 3500000,
-	// 		.min_pdm_clk_dc   = 40,
-	// 		.max_pdm_clk_dc   = 60,
-	// 	},
-	// 	.streams = &stream,
-	// 	.channel = {
-	// 		.req_num_streams = 1,
-	// 	},
-	// };
-
-    // cfg.channel.req_num_chan = 1;
-	// cfg.channel.req_chan_map_lo =
-	// 	dmic_build_channel_map(0, 0, PDM_CHAN_LEFT);
-	// cfg.streams[0].pcm_rate = MAX_SAMPLE_RATE;
-    
-	// cfg.streams[0].block_size =
-	// 	BLOCK_SIZE(cfg.streams[0].pcm_rate, cfg.channel.req_num_chan);
-
-	// error = do_pdm_transfer(dmic_dev, &cfg, 2 * BLOCK_COUNT);
-	// if (error < 0) {
-    //     printk("do_pdm_transfer error=%d\n",error);
-	// 	return 0;
-	// }
+    printk("NRF I2S0 psel-> SCK %d\n", NRF_I2S0->PSEL.SCK);
 
     //////////////////////////////////////////////// Data
     uint8_t sensor_config[1];
@@ -173,113 +141,111 @@ void main(void)
     ICM_Init(i2c_dev2,ICM_ADDR);
 
 
-    // SD card
-	// struct fs_file_t file;
+    //////////////////////////// SD card
+	
 
-    // setup_disk();
+    setup_disk();
 
-    // fs_file_t_init(&file);
-    // printk("Opening file path\n");
-    // char filename[30];
-	// sprintf(&filename, "/SD:/audio001.txt"); 
-	// error = fs_open(&file, filename, FS_O_CREATE | FS_O_WRITE);
-    // if (error) {
-	// 		printk("Error opening file [%03d]\n", error);
+    fs_file_t_init(&file);
+    printk("Opening file path\n");
+    char filename[30];
+	sprintf(&filename, "/SD:/audio001.txt"); 
+
+    // delete file if exist
+    fs_unlink(filename);
+
+	error = fs_open(&file, filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening file [%03d]\n", error);
+			return 0;
+		}
+
+    if (error=i2s_trigger(i2s_rx_dev,I2S_DIR_RX,I2S_TRIGGER_START)) {
+        printk("Failed to trigger i2s start, error=%d\n", error);
+		return 0;
+    }
+    
+    printk("Streams started\n");
+       
+    
+
+    // if (!dmic_trigger_command(dmic_dev, DMIC_TRIGGER_START)) {
+    //         printk("Failed to trigger i2s start\n");
 	// 		return 0;
 	// 	}
 
-    // printk("Streams started\n");
-    // if (!trigger_command(dmic_dev, DMIC_TRIGGER_START)) {
-	// 		return 0;
-	// 	}
 
     //////////////////////////////////////////////// bluetooth uart 
     //// init button
-    error = dk_buttons_init(button_changed);
-	if (error) {
-		printk("Cannot init buttons (error: %d)\n", error);
-	}
+    // error = dk_buttons_init(button_changed);
+	// if (error) {
+	// 	printk("Cannot init buttons (error: %d)\n", error);
+	// }
 
-    //// init led
-    error = dk_leds_init();
-	if (error) {
-		printk("Cannot init LEDs (error: %d)\n", error);
-	}
+    // //// init led
+    // error = dk_leds_init();
+	// if (error) {
+	// 	printk("Cannot init LEDs (error: %d)\n", error);
+	// }
 
-    // error = bt_uart_init();
-    // if (error) {
+    // error = bt_enable(NULL);
+	// if (error) {
 	// 	led_show_error();
 	// }
 
-    // error = bt_conn_auth_cb_register(&conn_auth_callbacks);
+    // printk("Bluetooth initialized\n");
+
+    // k_sem_give(&ble_init_ok);
+
+    // settings_load();
+
+    // error = bt_nus_init(&nus_cb);
 	// if (error) {
-	// 	printk("Failed to register authorization callbacks.\n");
+	// 	printk("Failed to initialize UART service (error: %d)\n", error);
 	// 	return 0;
 	// }
 
-	// error = bt_conn_auth_info_cb_register(&conn_auth_info_callbacks);
+
+    // // start advertising
+    // error = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
+	// 		      ARRAY_SIZE(sd));
 	// if (error) {
-	// 	printk("Failed to register authorization info callbacks.\n");
+	// 	printk("Advertising failed to start (error %d)\n", error);
 	// 	return 0;
 	// }
-
-    error = bt_enable(NULL);
-	if (error) {
-		led_show_error();
-	}
-
-    printk("Bluetooth initialized\n");
-
-    k_sem_give(&ble_init_ok);
-
-    settings_load();
-
-    error = bt_nus_init(&nus_cb);
-	if (error) {
-		printk("Failed to initialize UART service (error: %d)\n", error);
-		return 0;
-	}
-
-
-    // start advertising
-    error = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
-			      ARRAY_SIZE(sd));
-	if (error) {
-		printk("Advertising failed to start (error %d)\n", error);
-		return 0;
-	}
 
     // loop
     int while_count = 0;
-    int while_end = 10000;
+    int while_end = 100;
+    
 
-    int blink_status = 0;
-    char addr[BT_ADDR_LE_STR_LEN];
+    // int blink_status = 0;
+    // char addr[BT_ADDR_LE_STR_LEN];
     while (1){
-       
-        // read sensor output
-        ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
-        printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d",
-        sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
+        printk("While loop %d\n", while_count);
+    //     // read sensor output
+    //     ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
+    //     printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
+    //     sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
 
-        if (current_conn) {
-            char data[128];
-            snprintf(data,128,"Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
-        sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
+    //     if (current_conn) {
+    //         char data[128];
+    //         snprintf(data,128,"Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d",
+    //     sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
                       
             
-            error = bt_nus_send(NULL, data,128);
-		    if (error) {
-			    printk("Failed to send data:%d,%d over BLE connection, error=%d (enable notification if -128)\n",data[0],data[1],error);
-		    }
-            else {
-                printk("BLE send data success!\n");
-            }
+    //         error = bt_nus_send(NULL, data,128);
+	// 	    if (error) {
+	// 		    printk("Failed to send data:%d,%d over BLE connection, error=%d (enable notification if -128)\n",data[0],data[1],error);
+	// 	    }
+    //         else {
+    //             printk("BLE send data success!\n");
+    //         }
 
-        }
+    //     }
 
-        dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
-		k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
+    //     dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
+	// 	k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
 
         /* check sensor_config is on*/
         // check register bank from 0 (default) to 1, then back to 0
@@ -308,38 +274,41 @@ void main(void)
     //   PDM microphone    //
     /////////////////////////
 
-    // void *mem_block;
-	// size_t block_size;
+    void *mem_block;
+	size_t block_size;
 
-	// error = dmic_read(dmic_dev, 0, &mem_block, &block_size, READ_TIMEOUT);
-	// if (error < 0) {
-	// 	printk("Failed to read dmic data and write block: %d\n", error);
-	// 	return false;
-	// }
-
-	// error = fs_write(&file, mem_block, block_size);
-	// if (error < 0) {
-	// 	printk("Failed to write data in SD card: %d\n", error);
-	// 	break;
-	// }
-
-    // k_mem_slab_free(&mem_slab,&mem_block);
-    // // printk("k_mem_slab_num_free_get=%d\n",k_mem_slab_num_free_get(&mem_slab));
     
-    // if (while_count == while_end) {
-    //     if (!trigger_command(dmic_dev, DMIC_TRIGGER_STOP)) {
-	// 		return 0;
-	// 	}
-	// 	printk("Stream stopped\n");
 
-	// 	printk("File named \"audio001.txt\" successfully created\n");		
-	// 	fs_close(&file);
-    //     lsdir(disk_mount_pt);
-    //     break;
-    // }
-    // while_count++;
+    error = i2s_read(i2s_rx_dev,&mem_block,&block_size);
+	// error = dmic_read(dmic_dev, 0, &mem_block, &block_size, READ_TIMEOUT);
+	if (error < 0) {
+		printk("Failed to read dmic data and write block: %d\n", error);
+		// return false;
+	}
 
+	error = fs_write(&file, mem_block, block_size);
+	if (error < 0) {
+		printk("Failed to write data in SD card: %d\n", error);
+		break;
+	}
 
+    k_mem_slab_free(&mem_slab,&mem_block);
+    printk("k_mem_slab_num_free_get=%d\n",k_mem_slab_num_free_get(&mem_slab));
+    
+    if (while_count == while_end) {
+        if (i2s_trigger(i2s_rx_dev,I2S_DIR_RX,I2S_TRIGGER_STOP)) {
+        printk("Failed to trigger i2s stop\n");
+		return 0;
+        }
+
+		printk("Stream stopped\n");
+
+		printk("File named \"audio001.txt\" successfully created\n");		
+		fs_close(&file);
+        lsdir(disk_mount_pt);
+        break;
+    }
+    while_count++;
 
     }
 }
