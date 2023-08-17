@@ -4,17 +4,6 @@ if instance x (where 0<=x<=3) is used by one of the peripherals, none of the oth
 https://devzone.nordicsemi.com/f/nordic-q-a/62899/nrf9160---only-one-of-the-following-peripherals-can-be-enabled-spi1-uarte1-why
 */
 
-// MPU9265
-&i2c1 {
-	status = "okay";
-	compatible = "nordic,nrf-twim";
-	label = "I2C_1";
-	pinctrl-0 = <&i2c1_default>;
-	pinctrl-1 = <&i2c1_sleep>;
-	pinctrl-names = "default", "sleep";
-	clock-frequency = <100000>; 
-};
-
 // ICM42688
 &i2c2 {
 	status = "okay";
@@ -42,21 +31,6 @@ i2s_rx_dev: &i2s0 {
 };
 
 &pinctrl {
-	i2c1_default: i2c1_default{
-		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 5)>,
-				<NRF_PSEL(TWIM_SCL, 0, 4)>;
-		};
-	};
-
-	i2c1_sleep: i2c1_sleep{
-		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 5)>,
-				<NRF_PSEL(TWIM_SCL, 0, 4)>;
-			low-power-enable;
-		};
-	};
-
 	i2c2_default: i2c2_default{
 		group1 {
 			psels = <NRF_PSEL(TWIM_SDA, 0, 7)>,

@@ -39,6 +39,13 @@
 // I2C addr
 #define ICM_ADDR 0x69
 
+// Usual clock_rate
+const int I2C_ClockRate =  100e3;
+
+// Usual timeout
+// use int64_t k_uptime_get() to returns the elapsed time since the system booted, in milliseconds
+const int I2C_BUS_TIMEOUT_us = 200 / (I2C_ClockRate / 400e3);
+
 // full-scale range of accel and gyro sensors
 const int ICM_AccelRange_idx = 3;   //choose 0=32G, 1=16g, 2=8g, 3=4g, 4=2g
 const int  ICM_GyroRange_idx = 1;   //choose 0=2000dps, 1=1000dps, 2=500dps, 3=250dps, 4=125dps
