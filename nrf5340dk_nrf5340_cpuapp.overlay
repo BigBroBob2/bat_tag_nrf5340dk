@@ -5,14 +5,14 @@ https://devzone.nordicsemi.com/f/nordic-q-a/62899/nrf9160---only-one-of-the-foll
 */
 
 // ICM42688
-&i2c2 {
+spi_dev2: &spi2 {
 	status = "okay";
-	compatible = "nordic,nrf-twim";
-	label = "I2C_2";
-	pinctrl-0 = <&i2c2_default>;
-	pinctrl-1 = <&i2c2_sleep>;
+	cs-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
+	compatible = "nordic,nrf-spim";
+	pinctrl-0 = <&spi2_default>;
+	pinctrl-1 = <&spi2_sleep>;
 	pinctrl-names = "default", "sleep";
-	clock-frequency = <100000>; 
+	// clock-frequency = <8000000>; 
 };
 
 //////////////////////////////// Microphone
@@ -31,17 +31,19 @@ i2s_rx_dev: &i2s0 {
 };
 
 &pinctrl {
-	i2c2_default: i2c2_default{
+	spi2_default: spi2_default{
 		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 7)>,
-				<NRF_PSEL(TWIM_SCL, 0, 6)>;
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+				<NRF_PSEL(SPIM_SCK, 0, 6)>,
+				<NRF_PSEL(SPIM_MISO, 0, 5)>;
 		};
 	};
 
-	i2c2_sleep: i2c2_sleep{
+	spi2_sleep: spi2_sleep{
 		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 7)>,
-				<NRF_PSEL(TWIM_SCL, 0, 6)>;
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+				<NRF_PSEL(SPIM_SCK, 0, 6)>,
+				<NRF_PSEL(SPIM_MISO, 0, 5)>;
 			low-power-enable;
 		};
 	};
@@ -55,8 +57,7 @@ i2s_rx_dev: &i2s0 {
 			psels = <NRF_PSEL(I2S_MCK,1,9)>,
 					<NRF_PSEL(I2S_SCK_M,1,10)>,
 					<NRF_PSEL(I2S_LRCK_M,1,11)>,
-					// <NRF_PSEL(I2S_SDOUT,1,12)>,
-					<NRF_PSEL(I2S_SDIN,1,13)>;				
+					<NRF_PSEL(I2S_SDIN,1,12)>;				
 		};
 	};
 
@@ -91,6 +92,6 @@ i2s_rx_dev: &i2s0 {
 				compatible = "zephyr,sdmmc-disk";
 				status = "okay";
 			};
-			spi-max-frequency = <24000000>;
+			spi-max-frequency = <8000000>;
 	};
 };

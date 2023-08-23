@@ -6,8 +6,7 @@
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 
-
-#include <zephyr/drivers/i2c.h>
+#include <zephyr/drivers/spi.h>
 
 //register map
 // Bank 0
@@ -36,15 +35,7 @@
 #define ICM_YA_ST_DATA 60
 #define ICM_ZA_ST_DATA 61
 
-// I2C addr
-#define ICM_ADDR 0x69
 
-// Usual clock_rate
-const int I2C_ClockRate =  100e3;
-
-// Usual timeout
-// use int64_t k_uptime_get() to returns the elapsed time since the system booted, in milliseconds
-const int I2C_BUS_TIMEOUT_us = 200 / (I2C_ClockRate / 400e3);
 
 // full-scale range of accel and gyro sensors
 const int ICM_AccelRange_idx = 3;   //choose 0=32G, 1=16g, 2=8g, 3=4g, 4=2g
@@ -120,342 +111,93 @@ double ICM_ADC2Float(double val) {
     return val / 32768.0;
 }
 
+/////////////////////////////////////////////////////////////////////////////
+// config SPI
 
+#define DELAY_SPI_CS_ACTIVE_US 2
 
-uint8_t ICM_ReadByte(const struct device *dev, int Reg_addr, int I2C_addr) {
-    uint8_t data[1];
-    uint8_t res[1];
-    int err_write,err_read;
-    struct i2c_msg msg;
+#define ICM_SPI_WRITE 0b00000000
+#define ICM_SPI_READ  0b10000000
 
-    data[0] = Reg_addr;
-    
-    msg.buf = data;
-	msg.len = 1;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+static struct spi_cs_control cs_control;
+static struct spi_config cfg={0};
+const struct device *spi_dev2=DEVICE_DT_GET(DT_NODELABEL(spi_dev2));
 
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
+int ICM_SPI_config() {
+  cfg.frequency = 8000000U; // only spi4 has 24000000
+    cfg.operation = SPI_WORD_SET(8);
 
-    msg.buf = res;
-	msg.len = 1;
-	msg.flags = I2C_MSG_READ | I2C_MSG_STOP;
+    cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR(DT_NODELABEL(spi_dev2),cs_gpios));
+    if (!cs_control.gpio.port) {
+        printk("cannot find CS GPIO device\n");
+	}
+    cs_control.gpio.pin = DT_GPIO_PIN(DT_NODELABEL(spi_dev2), cs_gpios);
+	cs_control.gpio.dt_flags = DT_GPIO_FLAGS(DT_NODELABEL(spi_dev2), cs_gpios);
+	cs_control.delay = DELAY_SPI_CS_ACTIVE_US;
 
-    err_read = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_read != 0){
-        printk("i2c_read failed\n");
-        return 0;
-        }
-    
-    return res[0];
+	cfg.cs = &cs_control;
+
+  return 0;
 }
 
-short ICM_ReadShort(const struct device *dev, int Reg_addr, int I2C_addr) {
-    uint8_t data[1];
-    uint8_t res[2];
-    int err_write,err_read;
-    struct i2c_msg msg;
-
-    data[0] = Reg_addr;
+int ICM_enableSensor() {
+  uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
     
     
-    msg.buf = data;
-	msg.len = 1;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    msg.buf = res;
-	msg.len = 2;
-	msg.flags = I2C_MSG_READ | I2C_MSG_STOP;
-
-    err_read = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_read != 0){
-        printk("i2c_read failed\n");
-        return 0;
-        }
-    
-    return (short)((res[0] << 8) | res[1]);
+    tx_buf[0] = ICM_SPI_WRITE | ICM_PWR_MGMT0;
+    // enable accel and gyro
+    tx_buf[1] = 0b00001111;
+    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+        printk("spi_write failed\n");
+    }
+  return 0;
 }
 
-//ICM-42688 need init
-int ICM_Init(const struct device *dev, int I2C_addr){
-/* Init ICM42688*/
+short IMU_data[6];
 
-    uint8_t data[2];
-    int err_write,err_read;
-    struct i2c_msg msg;
+int ICM_readSensor() {
+  uint8_t addr_buf[1] = {0};
+    struct spi_buf spi_addr_buf = {
+            .buf = addr_buf,
+            .len = sizeof(addr_buf)
+        };
+    struct spi_buf_set addr_set = {
+		.buffers = &spi_addr_buf,
+		.count = 1
+	};
 
-    //turn on accel and gyro to Low_Noise mode
-    data[0] = ICM_PWR_MGMT0;
-    data[1] = 0x0F;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
+    uint8_t rx_buf[13] = {0};
+    struct spi_buf spi_rx_buf = {
+            .buf = rx_buf,
+            .len = sizeof(rx_buf)
+        };
+    struct spi_buf_set rx_set = {
+		.buffers = &spi_rx_buf,
+		.count = 1
+	};
 
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
+    addr_buf[0] = ICM_SPI_READ | ICM_ACCEL_DATA_X1;
+    if (spi_transceive(spi_dev2,&cfg,&addr_set,&rx_set)) {
+        printk("spi_transceive failed\n");
+    }
+
+    IMU_data[0] = (short)((rx_buf[1] << 8) | rx_buf[2]);
+    IMU_data[1] = (short)((rx_buf[3] << 8) | rx_buf[4]);
+    IMU_data[2] = (short)((rx_buf[5] << 8) | rx_buf[6]);
+    IMU_data[3] = (short)((rx_buf[7] << 8) | rx_buf[8]);
+    IMU_data[4] = (short)((rx_buf[9] << 8) | rx_buf[10]);
+    IMU_data[5] = (short)((rx_buf[11] << 8) | rx_buf[12]);
+
+    return 0;
 }
 
-int ICM_ReadSensor(const struct device *dev, short *res, int I2C_addr){
-    /* Read 12 bytes together, then get accel and gyro sensor data 
-    */
-    uint8_t data[1],buf[12];
-    int err_write,err_read;
-    struct i2c_msg msg;
-
-    data[0] = ICM_ACCEL_DATA_X1;
-    
-    msg.buf = data;
-	msg.len = 1;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    msg.buf = buf;
-	msg.len = 12;
-	msg.flags = I2C_MSG_READ | I2C_MSG_STOP;
-
-    err_read = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_read != 0){
-        printk("i2c_read failed\n");
-        return 0;
-        }
-    
-    res[0] = (short)((buf[0] << 8) | buf[1]);
-    res[1] = (short)((buf[2] << 8) | buf[3]);
-    res[2] = (short)((buf[4] << 8) | buf[5]);
-    res[3] = (short)((buf[6] << 8) | buf[7]);
-    res[4] = (short)((buf[8] << 8) | buf[9]);
-    res[5] = (short)((buf[10] << 8) | buf[11]);
-    
-
-    return 1;
-}
-
-int ICM_ReadSensorConfig(const struct device *dev, uint8_t *res, int I2C_addr){
-    /* Read sensor_config from ICM_42688
-    */
-    uint8_t data[2];
-    int err_write,err_read;
-    struct i2c_msg msg;
-
-    //change register bank from 0 to 1
-    data[0] = ICM_REG_BANK_SEL;
-    data[1] = 0x01;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    // read sensor_config
-    //change register bank from 0 to 1
-    data[0] = ICM_SENSOR_CONFIG;
-    
-    msg.buf = data;
-	msg.len = 1;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    msg.buf = res;
-	msg.len = 1;
-	msg.flags = I2C_MSG_READ | I2C_MSG_STOP;
-
-    err_read = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_read != 0){
-        printk("i2c_read failed\n");
-        return 0;
-        }
-
-    //change register bank from 1 back to 0
-    data[0] = ICM_REG_BANK_SEL;
-    data[1] = 0x00;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    return 1;
-}
-
-int ICM_EnableSelfTest(const struct device *dev, int I2C_addr){
-    /*self-test*/
-    uint8_t data[2];
-    int err_write,err_read;
-    struct i2c_msg msg;
-
-    // enable self-test
-    data[0] = ICM_SELF_TEST_CONFIG;
-    data[1] = 0xFF;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-}
-
-int ICM_DisableSelfTest(const struct device *dev, int I2C_addr){
-    /*self-test*/
-    uint8_t data[2];
-    int err_write,err_read;
-    struct i2c_msg msg;
-
-    // enable self-test
-    data[0] = ICM_SELF_TEST_CONFIG;
-    data[1] = 0x00;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-}
-
-int ICM_ReadSelfTestData(const struct device *dev, uint8_t *res, int I2C_addr){
-    /* Read self_test data
-    */
-    uint8_t data[2],A_data[3],G_data[3];
-    int err_write,err_read;
-    struct i2c_msg msg;
-
-    /////////////////////////// read gyro self_test data on bank 1
-    //change register bank from 0 to 1
-    data[0] = ICM_REG_BANK_SEL;
-    data[1] = 0x01;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    // read gyro self_test data
-    data[0] = ICM_XG_ST_DATA;
-    
-    msg.buf = data;
-	msg.len = 1;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    msg.buf = G_data;
-	msg.len = 3;
-	msg.flags = I2C_MSG_READ | I2C_MSG_STOP;
-
-    err_read = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_read != 0){
-        printk("i2c_read failed\n");
-        return 0;
-        }
-
-    /////////////////////////// read accel self_test data on bank 2
-    //change register bank from 1 to 2
-    data[0] = ICM_REG_BANK_SEL;
-    data[1] = 0x02;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    // read accel self_test data
-    data[0] = ICM_XA_ST_DATA;
-    
-    msg.buf = data;
-	msg.len = 1;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    msg.buf = A_data;
-	msg.len = 3;
-	msg.flags = I2C_MSG_READ | I2C_MSG_STOP;
-
-    err_read = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_read != 0){
-        printk("i2c_read failed\n");
-        return 0;
-        }
-
-    ////////////////////////////////change register bank from 1 back to 0
-    data[0] = ICM_REG_BANK_SEL;
-    data[1] = 0x00;
-    
-    msg.buf = data;
-	msg.len = 2;
-	msg.flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-	err_write = i2c_transfer(dev, &msg, 1, I2C_addr);
-    if (err_write != 0){
-        printk("i2c_write failed\n");
-        return 0;
-        }
-
-    res[0] = A_data[0];
-    res[1] = A_data[1];
-    res[2] = A_data[2];
-    res[3] = G_data[0];
-    res[4] = G_data[1];
-    res[5] = G_data[2];
 
 
-    return 1;
-}

@@ -13,61 +13,299 @@
 
 #include <nrfx_log.h>
 
+/// SD card data file
+static struct fs_file_t mic_file, mic_t_file, imu_file, imu_t_file;
+static uint32_t imu_t[1];
+static uint32_t mic_t[1];
+
+/////// ICM thread
+struct k_thread ICM_thread_data;
+/*ICM processing thread*/
+#define ICM_THREAD_STACK_SIZE 2048
+/* ICM thread is a priority cooperative thread, less than PDM mic*/
+#define ICM_THREAD_PRIORITY -16
+K_THREAD_STACK_DEFINE(ICM_thread_stack_area, ICM_THREAD_STACK_SIZE);
+K_SEM_DEFINE(ICM_thread_semaphore, 0, 1);
+K_SEM_DEFINE(processing_thread_semaphore, 0, 1);
+
+static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
+    while (true) {
+        if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
+            
+            ICM_readSensor();        
+            fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));   
+            // imu_t[0] = k_cycle_get_32();
+            // fs_write(&imu_t_file,&imu_t[0],sizeof(imu_t));   
+    }
+}
+}
+
+////////////////////////// I2S PDM mic
+
+/* Flag indicating which buffer pair is currently available for
+   processing/rendering. */
+static int processing_buffers_1 = 0;
+
+/* Indicates if the current buffer pair is being processed/rendered. */
+atomic_t processing_in_progress = ATOMIC_INIT(0x00);
+/* Indicates if a dropout occurred, i.e that audio buffers were
+   not processed in time for the next buffer swap. */
+atomic_t dropout_occurred = ATOMIC_INIT(0x00);
 
 
-static struct fs_file_t mic_file;
+// #define rx_buf_len  8192
+// static int32_t rx_buf1[rx_buf_len] = {0};
+// static int32_t rx_buf2[rx_buf_len] = {0};
+// static int32_t rx_wbuf1[rx_buf_len] = {0};
+// static int32_t rx_wbuf2[rx_buf_len] = {0};
+
+static uint32_t mic_t[1];
+
+#define BYTES_PER_SAMPLE 4
+#define AUDIO_BUFFER_N_SAMPLES 4096
+#define AUDIO_BUFFER_BYTE_SIZE (BYTES_PER_SAMPLE * AUDIO_BUFFER_N_SAMPLES)
+#define AUDIO_BUFFER_WORD_SIZE (AUDIO_BUFFER_BYTE_SIZE / 4)
+
+/* Use two pairs of rx/tx buffers for double buffering,
+   i.e process/render one pair of buffers while the other is
+   being received/transfered. */
+static int32_t __attribute__((aligned(4))) rx_1[AUDIO_BUFFER_N_SAMPLES];
+static int32_t __attribute__((aligned(4))) rx_2[AUDIO_BUFFER_N_SAMPLES];
+nrfx_i2s_buffers_t nrfx_i2s_buffers_1 = {
+    .p_rx_buffer = (uint32_t *)(&rx_1), .p_tx_buffer = NULL
+};
+nrfx_i2s_buffers_t nrfx_i2s_buffers_2 = {
+    .p_rx_buffer = (uint32_t *)(&rx_2), .p_tx_buffer = NULL
+};
+
+/*Audio processing thread*/
+#define PROCESSING_THREAD_STACK_SIZE 2048
+/* Processing thread is a top priority cooperative thread */
+#define PROCESSING_THREAD_PRIORITY -16
+K_THREAD_STACK_DEFINE(processing_thread_stack_area, PROCESSING_THREAD_STACK_SIZE);
+struct k_thread processing_thread_data;
+
+uint32_t processing_sem_give_time = 0;
+
+static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
+    while (true) {
+        if (k_sem_take(&processing_thread_semaphore, K_FOREVER) == 0) {
+            if (atomic_test_bit(&dropout_occurred, 0)) {
+                printk("dropout_occurred\n");
+                atomic_clear_bit(&dropout_occurred, 0);
+            }
+            // uint32_t processing_sem_take_time = k_cycle_get_32();
+            // uint32_t cycles_spent = processing_sem_take_time - processing_sem_give_time;
+            // uint32_t ns_spent = k_cyc_to_ns_ceil32(cycles_spent);
+            // printk("processing thread start took %d ns\n", ns_spent); 
+
+            if (!atomic_test_bit(&processing_in_progress, 0)) {
+                printk("processing_in_progress is not set");
+                __ASSERT(atomic_test_bit(&processing_in_progress, 0), "processing_in_progress is not set");
+            }
+
+            nrfx_i2s_buffers_t* buffers_to_process = processing_buffers_1 ? &nrfx_i2s_buffers_1 : &nrfx_i2s_buffers_2;
+            int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
+
+            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE);
+            // mic_t[0] = k_cycle_get_32();
+            // fs_write(&mic_t_file,&mic_t[0],sizeof(mic_t));
+
+            /* Swap buffers */
+            nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
+            if (result != NRFX_SUCCESS) {
+                /* printk("nrfx_i2s_next_buffers_set failed with %d\n", result); */
+                __ASSERT(result == NRFX_SUCCESS, "nrfx_i2s_next_buffers_set failed with result %d", result);
+            }
+            processing_buffers_1 = !processing_buffers_1;   
+
+            /* Done processing */
+            atomic_clear_bit(&processing_in_progress, 0);
+        }
+    }
+}
+
+ISR_DIRECT_DECLARE(i2s_isr_handler)
+{
+    nrfx_i2s_irq_handler();
+    // ISR_DIRECT_PM();
+    return 1;
+}
+
+void nrfx_i2s_data_handler(nrfx_i2s_buffers_t const *p_released, uint32_t status)
+{
+    if (status == NRFX_I2S_STATUS_NEXT_BUFFERS_NEEDED) {
+        if (atomic_test_bit(&processing_in_progress, 0) == false) {
+            atomic_set_bit(&processing_in_progress, 0);
+            processing_sem_give_time = k_cycle_get_32();
+            k_sem_give(&processing_thread_semaphore);
+        } else {
+            /* Missed deadline! */
+            atomic_set_bit(&dropout_occurred, 0);
+        }
+    }
+    else if (status == NRFX_I2S_STATUS_TRANSFER_STOPPED) {
+        /* */
+    }
+}
+
+
+
+/*
+Configure i2s driver using zephyr functions, 
+which are kind of convenient and by using them we don't need to set register values and later define RX buffers.
+
+We only care about SCK (bit stream freq) and LRCK is in fact meaningless, 
+so we need to play around word_size and frame_clk_freq to let it find a feasiable SCK
+*/
+static bool configure_i2s_rx(const struct device *i2s_rx_dev)
+{	
+	int ret;
+
+     /* Start a dedicated, high priority thread for audio processing. */
+    k_tid_t processing_thread_tid = k_thread_create(
+        &processing_thread_data,
+        processing_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(processing_thread_stack_area),
+        processing_thread_entry_point,
+        NULL, NULL, NULL,
+        PROCESSING_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+
+      IRQ_DIRECT_CONNECT(I2S0_IRQn, 0, i2s_isr_handler, 0);
+
+    nrfx_i2s_config_t nrfx_i2s_cfg = {
+        .sck_pin = I2S_SCK,
+        .lrck_pin = I2S_LRCK,
+        .mck_pin = I2S_MCK,
+        .sdin_pin = I2S_SDIN,
+        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV16,
+        .ratio = I2S_CONFIG_RATIO_RATIO_32X,
+        .irq_priority = NRFX_I2S_DEFAULT_CONFIG_IRQ_PRIORITY,
+        .mode = NRF_I2S_MODE_MASTER,
+        .format = NRF_I2S_FORMAT_I2S,
+        .alignment = NRF_I2S_ALIGN_LEFT,
+        .channels = NRF_I2S_CHANNELS_STEREO,
+        .sample_width = NRF_I2S_SWIDTH_32BIT
+    };
+
+    nrfx_err_t result = nrfx_i2s_init(&nrfx_i2s_cfg, &nrfx_i2s_data_handler);
+    if (result != NRFX_SUCCESS) {
+        printk("nrfx_i2s_init failed with result %d\n", result);
+        __ASSERT(result == NRFX_SUCCESS, "nrfx_i2s_init failed with result %d", result);
+        return result;
+    }
+
+
+	if (ret < 0) {
+		printk("Failed to configure i2s rx: %d\n", ret);
+		return false;
+	}
+
+	return true;
+}
+
 
 void main(void)
 {   
     int error;
 
-    ////////////////////////////////////////////  I2C devices IMU
+    //////////////////////////// SD card
+	
+    setup_disk();
+    //////// mic_file for microphone audio data
+    fs_file_t_init(&mic_file);
+    printk("Opening mic_file path\n");
+    char mic_filename[30];
+	sprintf(&mic_filename, "/SD:/audio001.dat"); 
+
+    // delete mic_file if exist
+    fs_unlink(mic_filename);
+
+	error = fs_open(&mic_file, mic_filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening mic_file [%03d]\n", error);
+			return 0;
+		}
+
+    //////// mic_t_file for microphone time data
+    fs_file_t_init(&mic_t_file);
+    printk("Opening mic_t_file path\n");
+    char mic_t_filename[30];
+	sprintf(&mic_t_filename, "/SD:/audio_t.dat"); 
+
+    // delete mic_t_file if exist
+    fs_unlink(mic_t_filename);
+
+	error = fs_open(&mic_t_file, mic_t_filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening mic_t_file [%03d]\n", error);
+			return 0;
+		}
+
+    ///////// imu_file for IMU data
+    fs_file_t_init(&imu_file);
+    printk("Opening imu_file path\n");
+    char imu_filename[30];
+	sprintf(&imu_filename, "/SD:/imu.dat"); 
+
+    // delete imu_file if exist
+    fs_unlink(imu_filename);
+
+	error = fs_open(&imu_file, imu_filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening imu_file [%03d]\n", error);
+			return 0;
+		}
+
+    //////// imu_t_file for ICM time data
+    fs_file_t_init(&imu_t_file);
+    printk("Opening imu_t_file path\n");
+    char imu_t_filename[30];
+	sprintf(&imu_t_filename, "/SD:/imu_t.dat"); 
+
+    // delete imu_t_file if exist
+    fs_unlink(imu_t_filename);
+
+	error = fs_open(&imu_t_file, imu_t_filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening imu_t_file [%03d]\n", error);
+			return 0;
+		}
+
+
+    ////////////////////////////////////////////  SPI devices IMU
 
     // range scale
     double ICM_GyroScale =  ICM_ADC2Float(ICM_GyroRangeVal_dps(ICM_GyroRange_idx));
     double ICM_AccelScale = ICM_ADC2Float(ICM_AccelRangeVal_G(ICM_AccelRange_idx));
     double ICM_Samplerate = ICM_SampRate(ICM_DataRate_idx);
 
-    printk("The I2C scanner started\n");
-    const struct device *i2c_dev2;
-
-    // check I2C binding
-    i2c_dev2 = device_get_binding("I2C_2");
-    if (!i2c_dev2) {
-        printk("I2C_2 Binding failed.");
+    // check ICM binding
+    if (!spi_dev2) {
+        printk("SPI_2 Binding failed.");
         return;
     }
+    printk("Value of NRF_SPI2->PSEL.SCK : %d \n",NRF_SPIM2->PSEL.SCK);
+    printk("Value of NRF_SPI2->PSEL.MOSI : %d \n",NRF_SPIM2->PSEL.MOSI);
+    printk("Value of NRF_SPI2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
+    printk("Value of NRF_SPI2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
 
-    /* Demonstration of runtime configuration */
+    /// config SPI first
+    ICM_SPI_config();
+    // enable sensor
+    ICM_enableSensor();
 
-    /*ISSUE with configurating multiple sensors on the same I2C bus:
-    https://devzone.nordicsemi.com/f/nordic-q-a/71837/configuring-two-sensor-on-same-i2c-bus-in-zephyr-rtos
-    */
-
-    // set ClockRate
-    error = i2c_configure(i2c_dev2, I2C_SPEED_SET(I2C_ClockRate));
-    if (error != 0){printk("ICM i2c_configure failed\n");}
-    // check WhoAmI
-    printk("WhoAmI: 0x%02x (ICM should be 0x47)\n",ICM_ReadByte(i2c_dev2,ICM_WHO_AM_I,ICM_ADDR));
-
-    // searching I2C address
-    for (uint8_t i = 4; i <= 0x7F; i++) {
-        struct i2c_msg msgs[1];
-        uint8_t dst = 1;
-
-        msgs[0].buf = &dst;
-        msgs[0].len = 1U;
-        msgs[0].flags = I2C_MSG_WRITE | I2C_MSG_STOP;
-
-        error = i2c_transfer(i2c_dev2, &msgs[0], 1, i);
-        if (error == 0) {
-            printk("I2C addr 0x%2x FOUND (ICM42688 should be 0x%2x)\n", i,ICM_ADDR);
-        }
-    }
-
-    // ICM need init
-    ICM_Init(i2c_dev2,ICM_ADDR);
-
+    // try to use thread to read ICM data
+    k_tid_t ICM_thread_tid = k_thread_create(
+        &ICM_thread_data,
+        ICM_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(ICM_thread_stack_area),
+        ICM_thread_entry_point,
+        NULL, NULL, NULL,
+        ICM_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+    
     //////////////////////////////////////////////// I2S for PDM mic
 
     const struct device *const i2s_rx_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_rx_dev));
@@ -86,30 +324,13 @@ void main(void)
     // f_actual = f_source / floor(1048576*4096/MCKFREQ)
     printk("NRF I2S0 CONFIG.MCKFREQ = %d, f_actual = %.3f\n", NRF_I2S0->CONFIG.MCKFREQ, 0.00745*NRF_I2S0->CONFIG.MCKFREQ);
 
-    if (error=i2s_trigger(i2s_rx_dev,I2S_DIR_RX,I2S_TRIGGER_START)) {
-        printk("Failed to trigger i2s start, error=%d\n", error);
-		return 0;
-    }
+    // start I2S
+    // NRF_I2S0->TASKS_START = 1;
+    error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
     
     printk("I2S streams started\n");
 
-    //////////////////////////// SD card
-	
-    setup_disk();
-
-    fs_file_t_init(&mic_file);
-    printk("Opening mic_file path\n");
-    char mic_filename[30];
-	sprintf(&mic_filename, "/SD:/audio001.dat"); 
-
-    // delete mic_file if exist
-    fs_unlink(mic_filename);
-
-	error = fs_open(&mic_file, mic_filename, FS_O_CREATE | FS_O_WRITE);
-    if (error) {
-			printk("Error opening mic_file [%03d]\n", error);
-			return 0;
-		}
+    
 
     //////////////////////////////////////////////// bluetooth uart 
     // init button
@@ -149,132 +370,84 @@ void main(void)
 		return 0;
 	}
 
-    //////////////////////////////////////////////// Data
-    static uint8_t sensor_config[1];
-    static short sensor_data[6];
+    
 
     // loop
     int while_count = 1;
-    int while_end = 500;
+    int while_end = 1000;
 
     // led status
     int blink_status = 0;
+    
+    static short IMU_data_buf1[6000],IMU_data_buf2[6000];
+    short *p = &IMU_data_buf1[0];
+    int count_p = 0;
+    int buf_id = 1;
 
     // ticks for sampling
-    int32_t time_between_samples = 32;
-    int32_t next_tick;
+    int ICM_sr = 0;
+    static int tic,toc;
+
+    tic = k_cycle_get_32();
     while (1){
         printk("While loop %d\n", while_count);
+        // ICM_readSensor();
+        // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));
+        // if (count_p != 6000) {
+        //     memcpy(p,IMU_data,sizeof(IMU_data));  
+        //     count_p += 6;
+        // }
+        // else {
+        //     if (buf_id == 1) {
+        //         fs_write(&imu_file,IMU_data_buf1,sizeof(IMU_data_buf1));
+        //         count_p = 0;
+        //         p = &IMU_data_buf2[0];
+        //         buf_id = 2;
+        //     }
+        //     else {
+        //         fs_write(&imu_file,IMU_data_buf2,sizeof(IMU_data_buf2));
+        //         count_p = 0;
+        //         p = &IMU_data_buf1[0];
+        //         buf_id = 1;
+        //     }
 
-        // ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
-        if (while_count%100 == 0) {
+        //     memcpy(p,IMU_data,sizeof(IMU_data));  
+        //     count_p += 6;
+        // }
+
+        // toc = k_cycle_get_32();
+        // if (toc-tic > 32768) {
+        //   tic = k_cycle_get_32();
+        //   printk("ICM sampling rate = %d Hz\n", ICM_sr);
+        //   ICM_sr = 0;
+        // }
+        // else {
+        //   ICM_sr++;
+        // }
+
+        k_sem_give(&ICM_thread_semaphore);
+        k_msleep(1);
         
-        printk("Time %f sec: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
-        1.0*sys_clock_tick_get_32()/32768,
-        sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
-        }
-
-        /////////// Try to read IMU data at 1024 Hz, 2^16 = 32768 cycles = 1 second
-        // How to get sensor data from multiple sensors at different sampling rate?
-       
-
-        // if (while_count == 1) {
-        // // read sensor output
-        // ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
-        // printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
-        // sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
-
-        // ///////// bluetooth send data
-
-        // if (current_conn) {
-        //     char data[128];
-        //     snprintf(data,128,"Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d",
-        // sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
-                      
-            
-        //     error = bt_nus_send(NULL, data,128);
-		//     if (error) {
-		// 	    printk("Failed to send data:%d,%d over BLE connection, error=%d (enable notification if -128)\n",data[0],data[1],error);
-		//     }
-        //     else {
-        //         printk("BLE send data success!\n");
-        //     }
-
-        // }
-
-        // dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
-
-        // next_tick = sys_clock_tick_get_32()+time_between_samples;
-        // }
-        // else if (sys_clock_tick_get_32() >= next_tick) {
-        //     // read sensor output
-        // ICM_ReadSensor(i2c_dev2,sensor_data,ICM_ADDR);
-        // printk("Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d\n",
-        // sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
-
-        // ///////// bluetooth send data
-
-        // if (current_conn) {
-        //     char data[128];
-        //     snprintf(data,128,"Data from ICM42688: sensor_config:%6d,acc_x:%6d,acc_y:%6d,acc_z:%6d,gyro_x:%6d,gyro_y:%6d,gyro_z:%6d",
-        // sensor_config[0],sensor_data[0],sensor_data[1],sensor_data[2],sensor_data[3],sensor_data[4],sensor_data[5]);
-                      
-            
-        //     error = bt_nus_send(NULL, data,128);
-		//     if (error) {
-		// 	    printk("Failed to send data:%d,%d over BLE connection, error=%d (enable notification if -128)\n",data[0],data[1],error);
-		//     }
-        //     else {
-        //         printk("BLE send data success!\n");
-        //     }
-
-        // }
-
-        // dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
-
-        // next_tick = next_tick+time_between_samples;
-        // }
-
-
 
     /////////////////////////
     //   PDM microphone    //
     /////////////////////////
-    int tic = k_cycle_get_32();
-    // printk("Time %d, start i2s_read\n",tic);
-
-    void *mem_block;
-	size_t block_size;
-  
-    error = i2s_read(i2s_rx_dev,&mem_block,&block_size);
-	if (error < 0) {
-		printk("Failed to read dmic data and write block: %d\n", error);
-		// return false;
-	}
-
-	error = fs_write(&mic_file, mem_block, block_size);
-	if (error < 0) {
-		printk("Failed to write data in SD card: %d\n", error);
-		break;
-	}
-
-    k_mem_slab_free(&mem_slab,&mem_block);
-    // printk("k_mem_slab_num_free_get=%d\n",k_mem_slab_num_free_get(&mem_slab));
-    
-    int toc = k_cycle_get_32();
-    printk("finish i2s_read, elapse %d\n",toc-tic);
     
     if (while_count == while_end) {
-        if (i2s_trigger(i2s_rx_dev,I2S_DIR_RX,I2S_TRIGGER_STOP)) {
-        printk("Failed to trigger i2s stop\n");
-		return 0;
-        }
+        nrfx_i2s_stop();
+
+        k_thread_abort(ICM_thread_tid);
 
 		printk("Stream stopped\n");
 
 		printk("mic_file named \"audio001.dat\" successfully created\n");		
 		fs_close(&mic_file);
+        fs_close(&mic_t_file);
+        fs_close(&imu_file);
+        fs_close(&imu_t_file);
+
         lsdir(disk_mount_pt);
+        k_usleep(5000);
         break;
     }
     while_count++;
