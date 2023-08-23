@@ -15,8 +15,13 @@
 
 /// SD card data file
 static struct fs_file_t mic_file, mic_t_file, imu_file, imu_t_file;
-static uint32_t imu_t[1];
+
 static uint32_t mic_t[1];
+
+static short imu_buf[6000]; // IMU buffer
+static int32_t imu_t[1]; // timestamp for each IMU sample
+static short *imu_p = &imu_buf[0]; // pointer to current buffer head
+static int8_t ICM_count = 0; // sample count within the buffer
 
 /////// ICM thread
 struct k_thread ICM_thread_data;
@@ -32,10 +37,14 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
             
-            ICM_readSensor();        
-            fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));   
-            // imu_t[0] = k_cycle_get_32();
-            // fs_write(&imu_t_file,&imu_t[0],sizeof(imu_t));   
+            ICM_readSensor();
+            memcpy(imu_p,&IMU_data[0],sizeof(IMU_data));   
+            // imu_t[ICM_count] = k_cycle_get_32();
+
+            ICM_count++;
+            imu_p = &imu_buf[6*ICM_count];
+
+            // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));    
     }
 }
 }
@@ -62,7 +71,7 @@ atomic_t dropout_occurred = ATOMIC_INIT(0x00);
 static uint32_t mic_t[1];
 
 #define BYTES_PER_SAMPLE 4
-#define AUDIO_BUFFER_N_SAMPLES 4096
+#define AUDIO_BUFFER_N_SAMPLES 5120
 #define AUDIO_BUFFER_BYTE_SIZE (BYTES_PER_SAMPLE * AUDIO_BUFFER_N_SAMPLES)
 #define AUDIO_BUFFER_WORD_SIZE (AUDIO_BUFFER_BYTE_SIZE / 4)
 
@@ -107,7 +116,13 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             nrfx_i2s_buffers_t* buffers_to_process = processing_buffers_1 ? &nrfx_i2s_buffers_1 : &nrfx_i2s_buffers_2;
             int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
 
-            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE);
+            // somehow mic_data and IMU_data fs_write together can work
+            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
+
+            fs_write(&imu_file, &imu_buf,ICM_count*sizeof(IMU_data));
+            ICM_count = 0;
+            imu_p = &imu_buf[ICM_count];
+
             // mic_t[0] = k_cycle_get_32();
             // fs_write(&mic_t_file,&mic_t[0],sizeof(mic_t));
 
@@ -213,6 +228,9 @@ void main(void)
     //////////////////////////// SD card
 	
     setup_disk();
+
+    lsdir(disk_mount_pt);
+
     //////// mic_file for microphone audio data
     fs_file_t_init(&mic_file);
     printk("Opening mic_file path\n");
@@ -374,59 +392,13 @@ void main(void)
 
     // loop
     int while_count = 1;
-    int while_end = 1000;
+    int while_end = 10000;
 
-    // led status
-    int blink_status = 0;
-    
-    static short IMU_data_buf1[6000],IMU_data_buf2[6000];
-    short *p = &IMU_data_buf1[0];
-    int count_p = 0;
-    int buf_id = 1;
-
-    // ticks for sampling
-    int ICM_sr = 0;
-    static int tic,toc;
-
-    tic = k_cycle_get_32();
     while (1){
-        printk("While loop %d\n", while_count);
-        // ICM_readSensor();
-        // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));
-        // if (count_p != 6000) {
-        //     memcpy(p,IMU_data,sizeof(IMU_data));  
-        //     count_p += 6;
-        // }
-        // else {
-        //     if (buf_id == 1) {
-        //         fs_write(&imu_file,IMU_data_buf1,sizeof(IMU_data_buf1));
-        //         count_p = 0;
-        //         p = &IMU_data_buf2[0];
-        //         buf_id = 2;
-        //     }
-        //     else {
-        //         fs_write(&imu_file,IMU_data_buf2,sizeof(IMU_data_buf2));
-        //         count_p = 0;
-        //         p = &IMU_data_buf1[0];
-        //         buf_id = 1;
-        //     }
-
-        //     memcpy(p,IMU_data,sizeof(IMU_data));  
-        //     count_p += 6;
-        // }
-
-        // toc = k_cycle_get_32();
-        // if (toc-tic > 32768) {
-        //   tic = k_cycle_get_32();
-        //   printk("ICM sampling rate = %d Hz\n", ICM_sr);
-        //   ICM_sr = 0;
-        // }
-        // else {
-        //   ICM_sr++;
-        // }
+        // printk("While loop %d\n", while_count);
 
         k_sem_give(&ICM_thread_semaphore);
-        k_msleep(1);
+        k_usleep(800); // not real IMU sampling rate
         
 
     /////////////////////////
@@ -434,9 +406,8 @@ void main(void)
     /////////////////////////
     
     if (while_count == while_end) {
-        nrfx_i2s_stop();
-
-        k_thread_abort(ICM_thread_tid);
+        // nrfx_i2s_stop();
+        // k_thread_abort(ICM_thread_tid);
 
 		printk("Stream stopped\n");
 
@@ -446,8 +417,8 @@ void main(void)
         fs_close(&imu_file);
         fs_close(&imu_t_file);
 
+        k_msleep(1000);
         lsdir(disk_mount_pt);
-        k_usleep(5000);
         break;
     }
     while_count++;
