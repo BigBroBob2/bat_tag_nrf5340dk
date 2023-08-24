@@ -71,7 +71,7 @@ atomic_t dropout_occurred = ATOMIC_INIT(0x00);
 static uint32_t mic_t[1];
 
 #define BYTES_PER_SAMPLE 4
-#define AUDIO_BUFFER_N_SAMPLES 5120
+#define AUDIO_BUFFER_N_SAMPLES 4096
 #define AUDIO_BUFFER_BYTE_SIZE (BYTES_PER_SAMPLE * AUDIO_BUFFER_N_SAMPLES)
 #define AUDIO_BUFFER_WORD_SIZE (AUDIO_BUFFER_BYTE_SIZE / 4)
 
@@ -90,7 +90,7 @@ nrfx_i2s_buffers_t nrfx_i2s_buffers_2 = {
 /*Audio processing thread*/
 #define PROCESSING_THREAD_STACK_SIZE 2048
 /* Processing thread is a top priority cooperative thread */
-#define PROCESSING_THREAD_PRIORITY -16
+#define PROCESSING_THREAD_PRIORITY -15
 K_THREAD_STACK_DEFINE(processing_thread_stack_area, PROCESSING_THREAD_STACK_SIZE);
 struct k_thread processing_thread_data;
 
@@ -122,6 +122,8 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             fs_write(&imu_file, &imu_buf,ICM_count*sizeof(IMU_data));
             ICM_count = 0;
             imu_p = &imu_buf[ICM_count];
+
+            // printk("fs_write\n");
 
             // mic_t[0] = k_cycle_get_32();
             // fs_write(&mic_t_file,&mic_t[0],sizeof(mic_t));
@@ -392,35 +394,37 @@ void main(void)
 
     // loop
     int while_count = 1;
-    int while_end = 10000;
+    int while_end = 600000;
 
-    while (1){
+    while (true){
         // printk("While loop %d\n", while_count);
+        // printk("ICM_count = %d\n", ICM_count);
 
         k_sem_give(&ICM_thread_semaphore);
         k_usleep(800); // not real IMU sampling rate
         
-
-    /////////////////////////
-    //   PDM microphone    //
-    /////////////////////////
+        if (while_count >= while_end) {
+            break;
+        }
+        while_count++;
+    }
     
-    if (while_count == while_end) {
-        // nrfx_i2s_stop();
-        // k_thread_abort(ICM_thread_tid);
+    ///////////////////// after loop
 
-		printk("Stream stopped\n");
+    nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
+                                  NRF_I2S_INT_TXPTRUPD_MASK);
+    k_thread_abort(ICM_thread_tid);
 
-		printk("mic_file named \"audio001.dat\" successfully created\n");		
-		fs_close(&mic_file);
-        fs_close(&mic_t_file);
-        fs_close(&imu_file);
-        fs_close(&imu_t_file);
+    k_msleep(1000);
 
-        k_msleep(1000);
-        lsdir(disk_mount_pt);
-        break;
-    }
-    while_count++;
-    }
+	printk("Stream stopped\n");
+
+	printk("mic_file named \"audio001.dat\" successfully created\n");		
+	fs_close(&mic_file);
+    fs_close(&mic_t_file);
+    fs_close(&imu_file);
+    fs_close(&imu_t_file);
+
+    k_msleep(1000);
+    lsdir(disk_mount_pt);
 }
