@@ -315,16 +315,6 @@ void main(void)
     ICM_SPI_config();
     // enable sensor
     ICM_enableSensor();
-
-    // try to use thread to read ICM data
-    k_tid_t ICM_thread_tid = k_thread_create(
-        &ICM_thread_data,
-        ICM_thread_stack_area,
-        K_THREAD_STACK_SIZEOF(ICM_thread_stack_area),
-        ICM_thread_entry_point,
-        NULL, NULL, NULL,
-        ICM_THREAD_PRIORITY, 0, K_NO_WAIT
-    );
     
     //////////////////////////////////////////////// I2S for PDM mic
 
@@ -343,14 +333,7 @@ void main(void)
 
     // f_actual = f_source / floor(1048576*4096/MCKFREQ)
     printk("NRF I2S0 CONFIG.MCKFREQ = %d, f_actual = %.3f\n", NRF_I2S0->CONFIG.MCKFREQ, 0.00745*NRF_I2S0->CONFIG.MCKFREQ);
-
-    // start I2S
-    // NRF_I2S0->TASKS_START = 1;
-    error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
-    
-    printk("I2S streams started\n");
-
-    
+   
 
     //////////////////////////////////////////////// bluetooth uart 
     // init button
@@ -390,11 +373,32 @@ void main(void)
 		return 0;
 	}
 
-    
+    // wait for bluetooth command
+    while (!current_conn) {
+        printk("Wait for bluetooth connection..\n");
+        k_msleep(1000);
+    } 
 
-    // loop
+
+    //////////////////////// START SAMPLE
+    // try to use thread to read ICM data
+    k_tid_t ICM_thread_tid = k_thread_create(
+        &ICM_thread_data,
+        ICM_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(ICM_thread_stack_area),
+        ICM_thread_entry_point,
+        NULL, NULL, NULL,
+        ICM_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+
+    // start I2S
+    error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
+    printk("I2S streams started\n");
+
+
+    ///////////////////////////////////////// loop
     int while_count = 1;
-    int while_end = 600000;
+    int while_end = 10000;
 
     while (true){
         // printk("While loop %d\n", while_count);
