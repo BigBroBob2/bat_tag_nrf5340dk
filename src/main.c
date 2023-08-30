@@ -14,9 +14,8 @@
 #include <nrfx_log.h>
 
 /// SD card data file
-static struct fs_file_t mic_file, mic_t_file, imu_file, imu_t_file;
+static struct fs_file_t mic_file, imu_file, imu_t_file, imu_count_file;
 
-static uint32_t mic_t[1];
 
 static short imu_buf[6000]; // IMU buffer
 static int32_t imu_t[1]; // timestamp for each IMU sample
@@ -32,10 +31,11 @@ struct k_thread ICM_thread_data;
 K_THREAD_STACK_DEFINE(ICM_thread_stack_area, ICM_THREAD_STACK_SIZE);
 K_SEM_DEFINE(ICM_thread_semaphore, 0, 1);
 K_SEM_DEFINE(processing_thread_semaphore, 0, 1);
+K_SEM_DEFINE(ICM_write_semaphore, 1, 1);
 
 static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
-        if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
+        if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0 && k_sem_take(&ICM_write_semaphore, K_FOREVER) == 0 ) {
             
             ICM_readSensor();
             memcpy(imu_p,&IMU_data[0],sizeof(IMU_data));   
@@ -45,6 +45,7 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             imu_p = &imu_buf[6*ICM_count];
 
             // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));    
+            k_sem_give(&ICM_write_semaphore);
     }
 }
 }
@@ -117,16 +118,20 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
 
             // somehow mic_data and IMU_data fs_write together can work
+            
+            imu_t[0] = k_cycle_get_32();
+            fs_write(&imu_t_file,&imu_t,sizeof(imu_t));
+
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
-
-            fs_write(&imu_file, &imu_buf,ICM_count*sizeof(IMU_data));
-            ICM_count = 0;
-            imu_p = &imu_buf[ICM_count];
-
-            // printk("fs_write\n");
-
-            // mic_t[0] = k_cycle_get_32();
-            // fs_write(&mic_t_file,&mic_t[0],sizeof(mic_t));
+            
+            if (k_sem_take(&ICM_write_semaphore, K_FOREVER) == 0) {
+                fs_write(&imu_count_file,&ICM_count,sizeof(ICM_count));
+                fs_write(&imu_file, &imu_buf,ICM_count*sizeof(IMU_data));
+                ICM_count = 0;
+                imu_p = &imu_buf[ICM_count];
+            
+                k_sem_give(&ICM_write_semaphore);
+            }
 
             /* Swap buffers */
             nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
@@ -249,19 +254,19 @@ void main(void)
 		}
 
     //////// mic_t_file for microphone time data
-    fs_file_t_init(&mic_t_file);
-    printk("Opening mic_t_file path\n");
-    char mic_t_filename[30];
-	sprintf(&mic_t_filename, "/SD:/audio_t.dat"); 
+    // fs_file_t_init(&mic_t_file);
+    // printk("Opening mic_t_file path\n");
+    // char mic_t_filename[30];
+	// sprintf(&mic_t_filename, "/SD:/audio_t.dat"); 
 
-    // delete mic_t_file if exist
-    fs_unlink(mic_t_filename);
+    // // delete mic_t_file if exist
+    // fs_unlink(mic_t_filename);
 
-	error = fs_open(&mic_t_file, mic_t_filename, FS_O_CREATE | FS_O_WRITE);
-    if (error) {
-			printk("Error opening mic_t_file [%03d]\n", error);
-			return 0;
-		}
+	// error = fs_open(&mic_t_file, mic_t_filename, FS_O_CREATE | FS_O_WRITE);
+    // if (error) {
+	// 		printk("Error opening mic_t_file [%03d]\n", error);
+	// 		return 0;
+	// 	}
 
     ///////// imu_file for IMU data
     fs_file_t_init(&imu_file);
@@ -290,6 +295,21 @@ void main(void)
 	error = fs_open(&imu_t_file, imu_t_filename, FS_O_CREATE | FS_O_WRITE);
     if (error) {
 			printk("Error opening imu_t_file [%03d]\n", error);
+			return 0;
+		}
+
+    //////// imu_count_file for ICM count data
+    fs_file_t_init(&imu_count_file);
+    printk("Opening imu_count_file path\n");
+    char imu_count_filename[30];
+	sprintf(&imu_count_filename, "/SD:/imu_c.dat"); 
+
+    // delete imu_count_file if exist
+    fs_unlink(imu_count_filename);
+
+	error = fs_open(&imu_count_file, imu_count_filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening imu_count_file [%03d]\n", error);
 			return 0;
 		}
 
@@ -398,9 +418,9 @@ void main(void)
 
     ///////////////////////////////////////// loop
     int while_count = 1;
-    int while_end = 10000;
+    int while_end = 600000;
 
-    while (true){
+    while (current_conn){
         // printk("While loop %d\n", while_count);
         // printk("ICM_count = %d\n", ICM_count);
 
@@ -425,9 +445,10 @@ void main(void)
 
 	printk("mic_file named \"audio001.dat\" successfully created\n");		
 	fs_close(&mic_file);
-    fs_close(&mic_t_file);
+    // fs_close(&mic_t_file);
     fs_close(&imu_file);
     fs_close(&imu_t_file);
+    fs_close(&imu_count_file);
 
     k_msleep(1000);
     lsdir(disk_mount_pt);
