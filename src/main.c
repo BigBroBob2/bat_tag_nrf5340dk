@@ -124,6 +124,7 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
             
+            // we don't want to record IMU and change ICM_count during IMU data writing
             if (k_sem_take(&ICM_write_semaphore, K_FOREVER) == 0) {
                 fs_write(&imu_count_file,&ICM_count,sizeof(ICM_count));
                 fs_write(&imu_file, &imu_buf,ICM_count*sizeof(IMU_data));
@@ -333,6 +334,13 @@ void main(void)
 
     /// config SPI first
     ICM_SPI_config();
+    
+    // enable interrupt
+    ICM_enableINT();
+
+    // GPIO configure interrupt
+    
+
     // enable sensor
     ICM_enableSensor();
     

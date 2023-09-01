@@ -7,9 +7,17 @@
 #include <zephyr/kernel.h>
 
 #include <zephyr/drivers/spi.h>
+#include <zephyr/drivers/gpio.h>
+
+
 
 //register map
 // Bank 0
+#define ICM_INT_CONFIG     20
+#define ICM_INT_SOURCE0    101
+#define ICM_INT_CONFIG1    100
+
+
 #define ICM_ACCEL_DATA_X1  31
 #define ICM_ACCEL_DATA_Y1  33
 #define ICM_ACCEL_DATA_Z1  35
@@ -198,6 +206,98 @@ int ICM_readSensor() {
 
     return 0;
 }
+
+static const struct device *GPIO_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
+static struct gpio_callback ICM_INT_cb;
+
+// GPIO INT pin number
+#define ICM_INT_pin   25
+
+void ICM_INT_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
+  if (pins & BIT(ICM_INT_pin)) {
+    printk("ICM_INT\n");
+  }
+}
+
+int ICM_enableINT() {
+  // Enable INT output pin.
+
+  
+  uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+  //ICM_INT_CONFIG
+  // Bit 0 set 1: INT1-active high
+  // Bit 1 set 1: INT1-push-pull
+  // Bit 2 set 0: INT1 pulse
+    tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG;
+    // 
+    tx_buf[1] = 0b00000011;
+    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+        printk("ICM_INT_CONFIG failed\n");
+    }
+
+    //ICM_INT_CONFIG1
+  // Bit 5 set 1: Disables de-assert duration. Required if ODR ≥ 4kHz
+  // Bit 6 set 1:  Interrupt pulse duration is 8 μs. Required if ODR ≥ 4kHz,
+    tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG1;
+    // 
+    tx_buf[1] = 0b01100000;
+    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+        printk("ICM_INT_CONFIG1 failed\n");
+    }
+
+    //ICM_INT_SOURCE0
+  // Bit 3 set 1:  UI data ready interrupt routed to INT1
+    tx_buf[0] = ICM_SPI_WRITE | ICM_INT_SOURCE0;
+    // 
+    tx_buf[1] = 0b00001000;
+    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+        printk("ICM_INT_CONFIG0 failed\n");
+    }
+
+  // check register values
+  uint8_t addr_buf[1] = {0};
+    struct spi_buf spi_addr_buf = {
+            .buf = addr_buf,
+            .len = sizeof(addr_buf)
+        };
+    struct spi_buf_set addr_set = {
+		.buffers = &spi_addr_buf,
+		.count = 1
+	};
+
+    uint8_t rx_buf[3] = {0};
+    struct spi_buf spi_rx_buf = {
+            .buf = rx_buf,
+            .len = sizeof(rx_buf)
+        };
+    struct spi_buf_set rx_set = {
+		.buffers = &spi_rx_buf,
+		.count = 1
+	};
+
+    addr_buf[0] = ICM_SPI_READ | ICM_INT_CONFIG1;
+    if (spi_transceive(spi_dev2,&cfg,&addr_set,&rx_set)) {
+        printk("spi_transceive failed\n");
+    }
+
+    printk("ICM_INT_CONFIG1=0x%02x,ICM_INT_SOURCE0=0x%02x\n", rx_buf[1],rx_buf[2]);
+
+    gpio_pin_interrupt_configure(GPIO_dev,ICM_INT_pin,GPIO_INT_EDGE_FALLING);
+    gpio_init_callback(&ICM_INT_cb,ICM_INT_handler,BIT(ICM_INT_pin));
+    // gpio_add_callback(GPIO_dev, &ICM_INT_cb);
+  
+  return 0;
+}
+
 
 
 
