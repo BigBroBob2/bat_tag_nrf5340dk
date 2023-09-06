@@ -17,6 +17,8 @@
 #define ICM_INT_SOURCE0    101
 #define ICM_INT_CONFIG1    100
 
+#define ICM_GYRO_CONFIG0   79
+#define ICM_ACCEL_CONFIG0  80
 
 #define ICM_ACCEL_DATA_X1  31
 #define ICM_ACCEL_DATA_Y1  33
@@ -148,6 +150,34 @@ int ICM_SPI_config() {
   return 0;
 }
 
+static int rate_idx = 6;
+
+int ICM_setSamplingRate(int rate_idx) {
+  uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+    
+    tx_buf[0] = ICM_SPI_WRITE | ICM_GYRO_CONFIG0;
+    tx_buf[1] = rate_idx;
+    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+        printk("spi_write failed\n");
+    }
+
+    tx_buf[0] = ICM_SPI_WRITE | ICM_ACCEL_CONFIG0;
+    tx_buf[1] = rate_idx;
+    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+        printk("spi_write failed\n");
+    }
+  return 0;
+}
+
 int ICM_enableSensor() {
   uint8_t tx_buf[2] = {0};
     struct spi_buf spi_tx_buf = {
@@ -173,21 +203,21 @@ short IMU_data[6];
 
 int ICM_readSensor() {
   uint8_t addr_buf[1] = {0};
-    struct spi_buf spi_addr_buf = {
+  struct spi_buf spi_addr_buf = {
             .buf = addr_buf,
             .len = sizeof(addr_buf)
         };
-    struct spi_buf_set addr_set = {
+  struct spi_buf_set addr_set = {
 		.buffers = &spi_addr_buf,
 		.count = 1
 	};
 
-    uint8_t rx_buf[13] = {0};
-    struct spi_buf spi_rx_buf = {
+  uint8_t rx_buf[13] = {0};
+  struct spi_buf spi_rx_buf = {
             .buf = rx_buf,
             .len = sizeof(rx_buf)
         };
-    struct spi_buf_set rx_set = {
+  struct spi_buf_set rx_set = {
 		.buffers = &spi_rx_buf,
 		.count = 1
 	};
@@ -212,12 +242,6 @@ static struct gpio_callback ICM_INT_cb;
 
 // GPIO INT pin number
 #define ICM_INT_pin   25
-
-void ICM_INT_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-  if (pins & BIT(ICM_INT_pin)) {
-    printk("ICM_INT\n");
-  }
-}
 
 int ICM_enableINT() {
   // Enable INT output pin.
@@ -291,9 +315,7 @@ int ICM_enableINT() {
 
     printk("ICM_INT_CONFIG1=0x%02x,ICM_INT_SOURCE0=0x%02x\n", rx_buf[1],rx_buf[2]);
 
-    gpio_pin_interrupt_configure(GPIO_dev,ICM_INT_pin,GPIO_INT_EDGE_FALLING);
-    gpio_init_callback(&ICM_INT_cb,ICM_INT_handler,BIT(ICM_INT_pin));
-    // gpio_add_callback(GPIO_dev, &ICM_INT_cb);
+    
   
   return 0;
 }
