@@ -14,11 +14,75 @@
 #include <nrfx_log.h>
 #include <nrfx_gpiote.h>
 
+/////////////////////////////////////////////////////////////////////////// Define circular buffer
+#define N_circular_buf 12000
+typedef struct {
+    short *buf; // actuall capacity = N-1
+    int write_idx; // idx to write into circular buf
+    int read_idx; // idx to read out from circular buf
+} circular_buf;
+
+static short imu_cbuf[N_circular_buf]; // IMU circular buffer
+
+circular_buf imu_circle_buf = {
+    .buf = imu_cbuf,
+    .write_idx = 0,
+    .read_idx = 0
+};
+
+bool is_empty(circular_buf *buf) {
+    if (buf->read_idx == buf->write_idx) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+bool is_full(circular_buf *buf) {
+    if ((buf->write_idx + 1) % N_circular_buf == buf->read_idx) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+int buf_length(circular_buf *buf) {
+    return (buf->write_idx - buf->read_idx + N_circular_buf) % N_circular_buf;
+}
+
+int write_in_buf(circular_buf *buf, short *value) {
+    int L = sizeof(value)/sizeof(short);
+    if (L + buf_length(buf) > N_circular_buf-1) {
+        printk("circular_buf out of range\n");
+        return -1;
+    }
+    
+    for (int i = 0;i < L;i++) {
+        buf->buf[buf->write_idx] = value[i];
+        buf->write_idx = (buf->write_idx + 1) % N_circular_buf;
+    }
+    return 0;
+}
+
+int read_out_buf(circular_buf *buf, short *value, int8_t *buf_l) {
+    int8_t L = (int8_t)buf_length(buf);
+    buf_l[0] = L;
+    for (int i=0;i<L;i++) {
+        value[i] = buf->buf[buf->read_idx];
+        buf->read_idx = (buf->read_idx + 1) % N_circular_buf;
+    }
+    return 0;
+}
+/////////////////////////////////////////////////////////////////////////// finish define circular buf
+
+
 /// SD card data file
 static struct fs_file_t mic_file, imu_file, imu_t_file, imu_count_file;
 
-
-static short imu_buf[600]; // IMU buffer
+static short imu_rbuf[6]; // small read buf to get direct data each time IRQ
+static short imu_buf[N_circular_buf]; // IMU buffer
 static int32_t imu_t[1]; // timestamp for each IMU sample
 static short *imu_p = &imu_buf[0]; // pointer to current buffer head
 static int8_t ICM_count = 0; // sample count within the buffer
@@ -38,21 +102,32 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
             
+            NRF_P0->PIN_CNF[12] = 1;
+            NRF_P0->OUTSET |= 1 << 12;
+
             ICM_readSensor();
-            memcpy(imu_p,&IMU_data[0],sizeof(IMU_data));   
+            memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data));   
             // imu_t[ICM_count] = k_cycle_get_32();
 
-            ICM_count++;
-            imu_p = &imu_buf[6*ICM_count];
+            // write data into circular buf
+            write_in_buf(&imu_circle_buf,imu_rbuf);
+
+            // ICM_count++;
+            // imu_p = &imu_buf[6*ICM_count];
 
             // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));    
             // k_sem_give(&ICM_write_semaphore);
+
+            NRF_P0->OUTCLR |= 1 << 12;
     }
 }
 }
 
 ISR_DIRECT_DECLARE(ICM_handler)
 {   
+    NRF_P0->PIN_CNF[11] = 1;
+    NRF_P0->OUTSET |= 1 << 11;
+
     // https://github.com/gcmcnutt/HeadTracker/blob/4d5e3fb4793d519110b5812090c64401381d3b56/firmware/src/src/targets/nrf52/PPMIn.cpp#L191
     ISR_DIRECT_HEADER();
     // printk("EVENTS_IN[7]=%d, CONFIG[7].PSEL=0x%x\n",NRF_GPIOTE0->EVENTS_IN[7],NRF_GPIOTE0->CONFIG[7]);
@@ -60,6 +135,8 @@ ISR_DIRECT_DECLARE(ICM_handler)
             k_sem_give(&ICM_thread_semaphore);
             NRF_GPIOTE0->EVENTS_IN[7] = 0;
         }
+
+    NRF_P0->OUTCLR |= 1 << 11;
 
     return 0;
 }
@@ -127,7 +204,7 @@ nrfx_i2s_buffers_t nrfx_i2s_buffers_2 = {
 /*Audio processing thread*/
 #define PROCESSING_THREAD_STACK_SIZE 2048
 /* Processing thread is a top priority cooperative thread */
-#define PROCESSING_THREAD_PRIORITY -15
+#define PROCESSING_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(processing_thread_stack_area, PROCESSING_THREAD_STACK_SIZE);
 struct k_thread processing_thread_data;
 
@@ -153,6 +230,8 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             nrfx_i2s_buffers_t* buffers_to_process = processing_buffers_1 ? &nrfx_i2s_buffers_1 : &nrfx_i2s_buffers_2;
             int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
 
+            NRF_P0->PIN_CNF[26] = 1;
+            NRF_P0->OUTSET |= 1 << 26;
             // somehow mic_data and IMU_data fs_write together can work
             
             imu_t[0] = k_cycle_get_32();
@@ -160,19 +239,28 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
             
+            NRF_P0->OUTCLR |= 1 << 26;
+
             // we don't want to record IMU and change ICM_count during IMU data writing
-            NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
-            NVIC_DisableIRQ(GPIOTE0_IRQn);
-            irq_disable(GPIOTE0_IRQn);
-            NRF_GPIOTE->INTENCLR |= 0x00000080;
+            
+
+            // NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
+            // NVIC_DisableIRQ(GPIOTE0_IRQn);
+            // irq_disable(GPIOTE0_IRQn);
+            // NRF_GPIOTE->INTENCLR |= 0x00000080;
+                //read out circualr buf
+                read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
+
                 fs_write(&imu_count_file,&ICM_count,sizeof(ICM_count));
-                fs_write(&imu_file, &imu_buf,ICM_count*sizeof(IMU_data));
-                ICM_count = 0;
-                imu_p = &imu_buf[ICM_count];
-            NRF_GPIOTE->INTENSET |= 0x00000080;
-            NVIC_EnableIRQ(GPIOTE0_IRQn);
-            irq_enable(GPIOTE0_IRQn);
-            NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
+                fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
+                // ICM_count = 0;
+                // imu_p = &imu_buf[ICM_count];
+            // NRF_GPIOTE->INTENSET |= 0x00000080;
+            // NVIC_EnableIRQ(GPIOTE0_IRQn);
+            // irq_enable(GPIOTE0_IRQn);
+            // NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
+
+            
         
 
             /* Swap buffers */
@@ -185,6 +273,8 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             /* Done processing */
             atomic_clear_bit(&processing_in_progress, 0);
+
+            
         }
     }
 }

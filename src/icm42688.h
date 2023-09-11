@@ -150,7 +150,7 @@ int ICM_SPI_config() {
   return 0;
 }
 
-static int rate_idx = 6;
+static int rate_idx = 15;
 
 int ICM_setSamplingRate(int rate_idx) {
   uint8_t tx_buf[2] = {0};
