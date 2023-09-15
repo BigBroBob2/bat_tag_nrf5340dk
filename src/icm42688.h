@@ -29,6 +29,20 @@
 
 #define ICM_PWR_MGMT0      78
 
+#define ICM_FIFO_CONFIG    22
+#define ICM_FIFO_CONFIG1   95
+#define ICM_FIFO_CONFIG2   96
+#define ICM_FIFO_CONFIG3   97
+
+#define ICM_FIFO_COUNTH    46
+#define ICM_FIFO_COUNTL    47
+#define ICM_FIFO_DATA      48
+
+# define ICM_SIGNAL_PATH_RESET  75
+#define ICM_INTF_CONFIG0   76
+
+#define ICM_FSYNC_CONFIG   98
+
 #define ICM_SELF_TEST_CONFIG  112
 #define ICM_WHO_AM_I       117
 #define ICM_REG_BANK_SEL   118
@@ -245,8 +259,7 @@ static struct gpio_callback ICM_INT_cb;
 
 int ICM_enableINT() {
   // Enable INT output pin.
-
-  
+ 
   uint8_t tx_buf[2] = {0};
     struct spi_buf spi_tx_buf = {
             .buf = tx_buf,
@@ -320,6 +333,184 @@ int ICM_enableINT() {
   return 0;
 }
 
+int ICM_configFIFO() {
+
+    uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+  // ICM_FIFO_CONFIG: Bit 7:6, 00=bypass (default), 01=stream-to-FIFO, 10/11=Stop-on-FULL
+  tx_buf[0] = ICM_SPI_WRITE | ICM_FIFO_CONFIG;
+  tx_buf[1] = 0b01000000;
+  if (spi_write(spi_dev2,&cfg,&tx_set)) {
+      printk("spi_write failed\n");
+  }
+
+  // ICM_FIFO_CONFIG1
+  // Bit6: 1: FIFO read can be partial, and resume from last read point
+  // Bit5: Trigger FIFO watermark interrupt on every ODR (DMA write) if FIFO_COUNT ≥ FIFO_WM_TH
+  // Bit3: Must be set to 1 for all FIFO use cases when FSYNC is used
+  // Bit1: Enable gyroscope packets to go to FIFO
+  // Bit0: Enable accelerometer packets to go to FIFO
+  tx_buf[0] = ICM_SPI_WRITE | ICM_FIFO_CONFIG1;
+  tx_buf[1] = 0b01100011;
+  if (spi_write(spi_dev2,&cfg,&tx_set)) {
+      printk("spi_write failed\n");
+  }
+
+  // ICM_FIFO_CONFIG2: Lower bits of FIFO watermark
+  // Generate interrupt when the FIFO reaches or exceeds FIFO_WM size in bytes or records according to FIFO_COUNT_REC (from ICM_INTF_CONFIG0 Bit6) setting
+  // Interrupt only fires once
+  // This register should be set to non-zero value, before choosing this interrupt source.
+  tx_buf[0] = ICM_SPI_WRITE | ICM_FIFO_CONFIG2;
+  tx_buf[1] = 0b00100000;
+  if (spi_write(spi_dev2,&cfg,&tx_set)) {
+      printk("spi_write failed\n");
+  }
+
+  // ICM_FIFO_CONFIG3: Higher bits of FIFO watermark
+  tx_buf[0] = ICM_SPI_WRITE | ICM_FIFO_CONFIG3;
+  tx_buf[1] = 0b00000000;
+  if (spi_write(spi_dev2,&cfg,&tx_set)) {
+      printk("spi_write failed\n");
+  }
+
+   // ICM_INTF_CONFIG0
+   // Bit7: 0
+   // Bit6: FIFO_COUNT_REC, 1=FIFO count is reported in records, 0=FIFO count is reported in bytes
+   // bit5: 1: FIFO count is reported in Big Endian format (default)
+   // Bit4: 1: Sensor data is reported in Big Endian format (default)
+  tx_buf[0] = ICM_SPI_WRITE | ICM_INTF_CONFIG0;
+  tx_buf[1] = 0b01110000;
+  if (spi_write(spi_dev2,&cfg,&tx_set)) {
+      printk("spi_write failed\n");
+  }
+
+  return 0;
+}
+
+uint8_t FIFO_packet_buf[700];
+int FIFO_packet_count;
+
+int ICM_readFIFO() {
+  uint8_t addr_buf[1] = {0};
+  struct spi_buf spi_addr_buf = {
+            .buf = addr_buf,
+            .len = sizeof(addr_buf)
+        };
+  struct spi_buf_set addr_set = {
+		.buffers = &spi_addr_buf,
+		.count = 1
+	};
+
+  uint8_t rx_buf[3] = {0};
+  struct spi_buf spi_rx_buf = {
+            .buf = rx_buf,
+            .len = sizeof(rx_buf)
+        };
+  struct spi_buf_set rx_set = {
+		.buffers = &spi_rx_buf,
+		.count = 1
+	};
+
+  // read FIFO_count
+    addr_buf[0] = ICM_SPI_READ | ICM_FIFO_COUNTH;
+    if (spi_transceive(spi_dev2,&cfg,&addr_set,&rx_set)) {
+        printk("spi_transceive failed\n");
+    }
+
+  FIFO_packet_count = (rx_buf[1] << 8 ) | rx_buf[2];
 
 
+ // read FIFO data
+  uint8_t FIFOdata_buf[2] = {0};
+  struct spi_buf spi_FIFOdata_buf = {
+            .buf = FIFOdata_buf,
+            .len = sizeof(FIFOdata_buf)
+        };
+  struct spi_buf_set FIFOdata_set = {
+		.buffers = &spi_FIFOdata_buf,
+		.count = 1
+	};
 
+  // printk("FIFO_packet_count=%d\n", FIFO_packet_count);
+
+  // Header 1 byte
+  // Accel 6 bytes
+  // Gyro  6 bytes
+  // Temp  1 byte
+  // Timestamp 2 bytes
+  for (int i=0;i<FIFO_packet_count;i++) {
+    addr_buf[0] = ICM_SPI_READ | ICM_FIFO_DATA;
+    if (spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set)) {
+        printk("spi_transceive failed\n");    
+    }
+    
+
+    // check header
+    if (FIFOdata_buf[1] & 0b01101000 != 0b01101000) {
+        printk("Invalid packet!\n");   
+    }
+
+    // read accel
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+1] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+2] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+3] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+4] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+5] = FIFOdata_buf[1];
+
+    // read gyro
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+6] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+7] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+8] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+9] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+10] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+11] = FIFOdata_buf[1];
+
+    // read timestamp
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+12] = FIFOdata_buf[1];
+    spi_transceive(spi_dev2,&cfg,&addr_set,&FIFOdata_set);
+    FIFO_packet_buf[14*i+13] = FIFOdata_buf[1];
+  }
+    return 0;
+}
+
+int ICM_FIFOReset() {
+  uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+  // ICM_SIGNAL_PATH_RESET
+  // Bit1: 1=FIFO flushed
+  tx_buf[0] = ICM_SPI_WRITE | ICM_SIGNAL_PATH_RESET;
+  tx_buf[1] = 0b00000010;
+  if (spi_write(spi_dev2,&cfg,&tx_set)) {
+      printk("spi_write failed\n");
+  }
+}

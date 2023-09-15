@@ -104,13 +104,26 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             
             NRF_P0->PIN_CNF[12] = 1;
             NRF_P0->OUTSET |= 1 << 12;
+            
+            ICM_readFIFO();
+            
+            // convert uint8_t to short data
+            short FIFO_packet_data[7*FIFO_packet_count];
+            for (int i=0;i<FIFO_packet_count;i++) {
+                FIFO_packet_data[7*i] = (short)((FIFO_packet_buf[14*i] << 8) | FIFO_packet_buf[14*i+1]);
+                FIFO_packet_data[7*i+1] = (short)((FIFO_packet_buf[14*i+2] << 8) | FIFO_packet_buf[14*i+3]);
+                FIFO_packet_data[7*i+2] = (short)((FIFO_packet_buf[14*i+4] << 8) | FIFO_packet_buf[14*i+5]);
+                FIFO_packet_data[7*i+3] = (short)((FIFO_packet_buf[14*i+6] << 8) | FIFO_packet_buf[14*i+7]);
+                FIFO_packet_data[7*i+4] = (short)((FIFO_packet_buf[14*i+8] << 8) | FIFO_packet_buf[14*i+9]);
+                FIFO_packet_data[7*i+5] = (short)((FIFO_packet_buf[14*i+10] << 8) | FIFO_packet_buf[14*i+11]);
+                FIFO_packet_data[7*i+6] = (short)((FIFO_packet_buf[14*i+12] << 8) | FIFO_packet_buf[14*i+13]);
+            }
 
-            ICM_readSensor();
-            memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data));   
-            // imu_t[ICM_count] = k_cycle_get_32();
-
-            // write data into circular buf
-            write_in_buf(&imu_circle_buf,imu_rbuf);
+            write_in_buf(&imu_circle_buf,FIFO_packet_data);
+            // ICM_readSensor();
+            // memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data));  
+            // // write data into circular buf
+            // write_in_buf(&imu_circle_buf,imu_rbuf);
 
             // ICM_count++;
             // imu_p = &imu_buf[6*ICM_count];
@@ -230,8 +243,6 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             nrfx_i2s_buffers_t* buffers_to_process = processing_buffers_1 ? &nrfx_i2s_buffers_1 : &nrfx_i2s_buffers_2;
             int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
 
-            NRF_P0->PIN_CNF[26] = 1;
-            NRF_P0->OUTSET |= 1 << 26;
             // somehow mic_data and IMU_data fs_write together can work
             
             imu_t[0] = k_cycle_get_32();
@@ -239,7 +250,6 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
             
-            NRF_P0->OUTCLR |= 1 << 26;
 
             // we don't want to record IMU and change ICM_count during IMU data writing
             
@@ -471,6 +481,9 @@ void main(void)
     // set ICM samping rate
     ICM_setSamplingRate(rate_idx);
 
+    // config FIFO
+    ICM_configFIFO();
+
     // enable interrupt
     ICM_enableINT();
 
@@ -571,6 +584,10 @@ void main(void)
     // start I2S
     error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
     printk("I2S streams started\n");
+    
+
+    ICM_FIFOReset();
+
 
     // enable GPIOTE
     NRF_GPIOTE0->EVENTS_IN[7] = 0;
@@ -583,7 +600,7 @@ void main(void)
     irq_enable(GPIOTE0_IRQn);
     
     
-
+    
 
     ///////////////////////////////////////// loop
     int while_count = 1;
@@ -605,6 +622,7 @@ void main(void)
         //     k_sem_give(&ICM_thread_semaphore);
         //     NRF_GPIOTE->EVENTS_IN[7] = 0;
         // }
+        printk("tictoc\n");
         k_msleep(1000);
     }
     
