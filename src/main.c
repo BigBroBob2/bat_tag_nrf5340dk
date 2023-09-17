@@ -15,7 +15,7 @@
 #include <nrfx_gpiote.h>
 
 /////////////////////////////////////////////////////////////////////////// Define circular buffer
-#define N_circular_buf 12000
+#define N_circular_buf 1024
 typedef struct {
     short *buf; // actuall capacity = N-1
     int write_idx; // idx to write into circular buf
@@ -23,9 +23,18 @@ typedef struct {
 } circular_buf;
 
 static short imu_cbuf[N_circular_buf]; // IMU circular buffer
-
+// IMU sample data circular buffer
 circular_buf imu_circle_buf = {
     .buf = imu_cbuf,
+    .write_idx = 0,
+    .read_idx = 0
+};
+
+static uint16_t imu_count_idx[1]={0};
+static short imu_count_buf[N_circular_buf]; // IMU count circular buffer
+// IMU sample count circular buffer
+circular_buf count_circle_buf = {
+    .buf = imu_count_buf,
     .write_idx = 0,
     .read_idx = 0
 };
@@ -49,14 +58,14 @@ bool is_full(circular_buf *buf) {
 }
 
 int buf_length(circular_buf *buf) {
-    NRF_GPIOTE->INTENCLR |= 0x00000080;
+    // NRF_GPIOTE->INTENCLR |= 0x00000080;
     int temp = (buf->write_idx - buf->read_idx + N_circular_buf) % N_circular_buf;
-    NRF_GPIOTE->INTENSET |= 0x00000080;
+    // NRF_GPIOTE->INTENSET |= 0x00000080;
     return temp;
 }
 
-int write_in_buf(circular_buf *buf, short *value) {
-    int L = sizeof(value)/sizeof(short);
+int write_in_buf(circular_buf *buf, short *value, int L) {
+    // L should be sizeof(value)/sizeof(short)
     if (L + buf_length(buf) > N_circular_buf-1) {
         printk("circular_buf out of range\n");
         return -1;
@@ -69,16 +78,16 @@ int write_in_buf(circular_buf *buf, short *value) {
     return 0;
 }
 
-int read_out_buf(circular_buf *buf, short *value, uint8_t *buf_l) {
-    uint8_t L = (uint8_t)buf_length(buf);
+int read_out_buf(circular_buf *buf, short *value, uint16_t *buf_l) {
+    uint16_t L = (uint16_t)buf_length(buf);
     buf_l[0] = L;
     for (int i=0;i<L;i++) {
         value[i] = buf->buf[buf->read_idx];
         buf->read_idx = (buf->read_idx + 1) % N_circular_buf;
     }
-    if (L < 0) {
-        printk("buf_length=%d\n, write_idx=%d, read_idx=%d\n",L, buf->write_idx, buf->read_idx);
-    }
+    // if (L > 0) {
+    //     printk("buf_length=%d\n, write_idx=%d, read_idx=%d\n",L, buf->write_idx, buf->read_idx);
+    // }
     return 0;
 }
 /////////////////////////////////////////////////////////////////////////// finish define circular buf
@@ -89,9 +98,12 @@ static struct fs_file_t mic_file, imu_file, imu_t_file, imu_count_file;
 
 static short imu_rbuf[6]; // small read buf to get direct data each time IRQ
 static short imu_buf[N_circular_buf]; // IMU buffer
+static short imu_cw_buf[N_circular_buf]; // IMU count write buffer
 static int32_t imu_t[1]; // timestamp for each IMU sample
 static short *imu_p = &imu_buf[0]; // pointer to current buffer head
-static uint8_t ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
+static uint16_t ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
+
+static uint16_t ICM_cw=0;
 
 /////// ICM thread
 struct k_thread ICM_thread_data;
@@ -116,7 +128,10 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             // imu_t[ICM_count] = k_cycle_get_32();
 
             // write data into circular buf
-            write_in_buf(&imu_circle_buf,imu_rbuf);
+            write_in_buf(&imu_circle_buf,imu_rbuf,6);
+
+            imu_count_idx[0]++;
+            write_in_buf(&count_circle_buf, imu_count_idx,1);
 
             // ICM_count++;
             // imu_p = &imu_buf[6*ICM_count];
@@ -125,6 +140,8 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             // k_sem_give(&ICM_write_semaphore);
 
             NRF_P0->OUTCLR |= 1 << 12;
+
+            // printk("ICM th end\n");
     }
 }
 }
@@ -147,27 +164,6 @@ ISR_DIRECT_DECLARE(ICM_handler)
     return 0;
 }
 
-// void ICM_INT_handler(const struct device *dev, struct gpio_callback *cb, uint32_t pins) {
-
-//     // k_is_in_isr()
-
-//     NRF_P0->PIN_CNF[26] = 1;
-//     NRF_P0->OUTSET = 1 << 26;
-
-//   if (pins & BIT(ICM_INT_pin)) {
-
-//             ICM_readSensor();
-//             memcpy(imu_p,&IMU_data[0],sizeof(IMU_data));   
-//             // imu_t[ICM_count] = k_cycle_get_32();
-
-//             ICM_count++;
-//             imu_p = &imu_buf[6*ICM_count];
-
-//             // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));    
-//   }
-//   NRF_P0->OUTCLR = 1 << 26;
-// }
-
 ////////////////////////// I2S PDM mic
 
 /* Flag indicating which buffer pair is currently available for
@@ -179,13 +175,6 @@ atomic_t processing_in_progress = ATOMIC_INIT(0x00);
 /* Indicates if a dropout occurred, i.e that audio buffers were
    not processed in time for the next buffer swap. */
 atomic_t dropout_occurred = ATOMIC_INIT(0x00);
-
-
-// #define rx_buf_len  8192
-// static int32_t rx_buf1[rx_buf_len] = {0};
-// static int32_t rx_buf2[rx_buf_len] = {0};
-// static int32_t rx_wbuf1[rx_buf_len] = {0};
-// static int32_t rx_wbuf2[rx_buf_len] = {0};
 
 static uint32_t mic_t[1];
 
@@ -263,8 +252,13 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // NRF_GPIOTE->INTENCLR |= 0x00000080;
                 //read out circualr buf
                 read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
+                
+                read_out_buf(&count_circle_buf, imu_cw_buf, &ICM_cw);
 
-                fs_write(&imu_count_file,&ICM_count,sizeof(ICM_count));
+                // printk("ICM_count=%d, ICM_cw=%d\n",ICM_count,ICM_cw);
+
+                // fs_write(&imu_count_file,&ICM_count,sizeof(ICM_count));
+                fs_write(&imu_count_file, &imu_cw_buf,ICM_cw*sizeof(short));
                 fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
                 // ICM_count = 0;
                 // imu_p = &imu_buf[ICM_count];
