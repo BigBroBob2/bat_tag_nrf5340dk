@@ -179,7 +179,7 @@ atomic_t dropout_occurred = ATOMIC_INIT(0x00);
 static uint32_t mic_t[1];
 
 #define BYTES_PER_SAMPLE 4
-#define AUDIO_BUFFER_N_SAMPLES 4096
+#define AUDIO_BUFFER_N_SAMPLES 8192
 #define AUDIO_BUFFER_BYTE_SIZE (BYTES_PER_SAMPLE * AUDIO_BUFFER_N_SAMPLES)
 #define AUDIO_BUFFER_WORD_SIZE (AUDIO_BUFFER_BYTE_SIZE / 4)
 
@@ -232,14 +232,24 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
 
             
-            // somehow mic_data and IMU_data fs_write together can work
+            ///////////////// somehow mic_data and IMU_data fs_write together can work
+
+            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
+
+            /* Swap buffers */
+            nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
+            if (result != NRFX_SUCCESS) {
+                /* printk("nrfx_i2s_next_buffers_set failed with %d\n", result); */
+                __ASSERT(result == NRFX_SUCCESS, "nrfx_i2s_next_buffers_set failed with result %d", result);
+            }
+            processing_buffers_1 = !processing_buffers_1;   
+
+            
+
+
             
             imu_t[0] = k_cycle_get_32();
             fs_write(&imu_t_file,&imu_t,sizeof(imu_t));
-
-            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
-            
-            
 
             // we don't want to record IMU and change ICM_count during IMU data writing
             
@@ -270,18 +280,12 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             NRF_P0->OUTCLR |= 1 << 26;
         
 
-            /* Swap buffers */
-            nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
-            if (result != NRFX_SUCCESS) {
-                /* printk("nrfx_i2s_next_buffers_set failed with %d\n", result); */
-                __ASSERT(result == NRFX_SUCCESS, "nrfx_i2s_next_buffers_set failed with result %d", result);
-            }
-            processing_buffers_1 = !processing_buffers_1;   
+            
 
             
-            /* Done processing */
-            atomic_clear_bit(&processing_in_progress, 0);
             
+            /* Done audio processing */
+            atomic_clear_bit(&processing_in_progress, 0);
         }
         
     }
@@ -300,7 +304,6 @@ void nrfx_i2s_data_handler(nrfx_i2s_buffers_t const *p_released, uint32_t status
     if (status == NRFX_I2S_STATUS_NEXT_BUFFERS_NEEDED) {
         if (atomic_test_bit(&processing_in_progress, 0) == false) {
             atomic_set_bit(&processing_in_progress, 0);
-            processing_sem_give_time = k_cycle_get_32();
             k_sem_give(&processing_thread_semaphore);
         } else {
             /* Missed deadline! */
@@ -343,7 +346,7 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
         .lrck_pin = I2S_LRCK,
         .mck_pin = I2S_MCK,
         .sdin_pin = I2S_SDIN,
-        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV16,
+        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32,
         .ratio = I2S_CONFIG_RATIO_RATIO_32X,
         .irq_priority = NRFX_I2S_DEFAULT_CONFIG_IRQ_PRIORITY,
         .mode = NRF_I2S_MODE_MASTER,
