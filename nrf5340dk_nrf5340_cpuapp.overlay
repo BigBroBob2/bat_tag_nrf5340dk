@@ -4,93 +4,62 @@ if instance x (where 0<=x<=3) is used by one of the peripherals, none of the oth
 https://devzone.nordicsemi.com/f/nordic-q-a/62899/nrf9160---only-one-of-the-following-peripherals-can-be-enabled-spi1-uarte1-why
 */
 
-// MPU9265
-&i2c1 {
-	status = "okay";
-	compatible = "nordic,nrf-twim";
-	label = "I2C_1";
-	pinctrl-0 = <&i2c1_default>;
-	pinctrl-1 = <&i2c1_sleep>;
-	pinctrl-names = "default", "sleep";
-	clock-frequency = <100000>; 
-};
-
 // ICM42688
-&i2c2 {
+spi_dev2: &spi2 {
 	status = "okay";
-	compatible = "nordic,nrf-twim";
-	label = "I2C_2";
-	pinctrl-0 = <&i2c2_default>;
-	pinctrl-1 = <&i2c2_sleep>;
+	cs-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
+	compatible = "nordic,nrf-spim";
+	pinctrl-0 = <&spi2_default>;
+	pinctrl-1 = <&spi2_sleep>;
 	pinctrl-names = "default", "sleep";
-	clock-frequency = <100000>; 
+	// clock-frequency = <8000000>; 
 };
 
 //////////////////////////////// Microphone
 //////// PDM interface
-&clock {
-	hfclkaudio-frequency = <12288000>;
-};
-
-dmic_dev: &pdm0 {
-	status = "okay";
-	pinctrl-0 = <&pdm0_default>;
-	pinctrl-names = "default";
-	clock-source = "ACLK";
-};
-
-///////// I2S interface
-// i2s_dev: &i2s0 {
-// 	status = "okay";
-// 	pinctrl-0 = <&i2s0_default>;
-// 	pinctrl-names = "default";
+// &clock {
+// 	hfclkaudio-frequency = <11289600>;
 // };
 
+
+///////// I2S interface
+i2s_rx_dev: &i2s0 {
+	status = "okay";
+	pinctrl-0 = <&i2s0_default>;
+	pinctrl-names = "default";
+	// clock-source = "ACLK";
+};
+
 &pinctrl {
-	i2c1_default: i2c1_default{
+	spi2_default: spi2_default{
 		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 5)>,
-				<NRF_PSEL(TWIM_SCL, 0, 4)>;
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+				<NRF_PSEL(SPIM_SCK, 0, 6)>,
+				<NRF_PSEL(SPIM_MISO, 0, 5)>;
 		};
 	};
 
-	i2c1_sleep: i2c1_sleep{
+	spi2_sleep: spi2_sleep{
 		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 5)>,
-				<NRF_PSEL(TWIM_SCL, 0, 4)>;
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+				<NRF_PSEL(SPIM_SCK, 0, 6)>,
+				<NRF_PSEL(SPIM_MISO, 0, 5)>;
 			low-power-enable;
 		};
 	};
 
-	i2c2_default: i2c2_default{
-		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 7)>,
-				<NRF_PSEL(TWIM_SCL, 0, 6)>;
-		};
-	};
 
-	i2c2_sleep: i2c2_sleep{
-		group1 {
-			psels = <NRF_PSEL(TWIM_SDA, 0, 7)>,
-				<NRF_PSEL(TWIM_SCL, 0, 6)>;
-			low-power-enable;
-		};
-	};
-
-	pdm0_default: pdm0_default{
+	// We now use I2S interface instead of PDM to get bit stream
+	i2s0_default: i2s0_default{
 		group1{
-			psels = <NRF_PSEL(PDM_DIN, 0, 26)>,
-				<NRF_PSEL(PDM_CLK, 0, 25)>;
+			// need to define MCK, LRCK_M, even though we don't wire them with PDM mic
+			// otherwise I2S driver will not work
+			psels = <NRF_PSEL(I2S_MCK,1,9)>,
+					<NRF_PSEL(I2S_SCK_M,1,10)>,
+					<NRF_PSEL(I2S_LRCK_M,1,11)>,
+					<NRF_PSEL(I2S_SDIN,1,12)>;				
 		};
 	};
-
-	// i2s0_default: i2s0_default{
-	// 	group1{
-	// 		psels = <NRF_PSEL(I2S_SCK_M,0,25)>,
-	// 				<NRF_PSEL(I2S_SDIN,0,26)>;
-					
-	// 	};
-	// };
 
 	spi3_default: spi3_default{
 		group1 {
@@ -106,10 +75,6 @@ dmic_dev: &pdm0 {
 	cdc_acm_uart0: cdc_acm_uart0 {
 		compatible = "zephyr,cdc-acm-uart";
 	};
-
-	// cdc_acm_uart1 {
-	// 	compatible = "zephyr,cdc-acm-uart";
-	// };
 };
 
 
