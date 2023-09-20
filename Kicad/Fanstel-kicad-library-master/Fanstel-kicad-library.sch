@@ -1,0 +1,129 @@
+EESchema Schematic File Version 4
+EELAYER 30 0
+EELAYER END
+$Descr A2 23386 16535
+encoding utf-8
+Sheet 1 1
+Title "Fanstel Module Library"
+Date "2021-09-26"
+Rev ""
+Comp ""
+Comment1 "@hemalchevli"
+Comment2 "Drawn by:"
+Comment3 ""
+Comment4 ""
+$EndDescr
+Text Notes 2150 1150 0    118  ~ 0
+BC832-V0
+Text Notes 5100 1150 0    118  ~ 0
+BC832-V1
+Text Notes 8650 1100 0    118  ~ 0
+BM832
+Text Notes 12700 1100 0    118  ~ 0
+BM840
+Text Notes 3550 6100 0    118  ~ 0
+BT832L
+Text Notes 7600 6200 0    118  ~ 0
+BT832X
+Text Notes 12600 6150 0    118  ~ 0
+BT840
+$Comp
+L Fanstel-modules:BC832-V0 U1
+U 1 1 5B4AFE70
+P 2650 2450
+F 0 "U1" H 2650 3550 45  0000 C CNN
+F 1 "BC832-V0" H 3850 1600 45  0000 C CNN
+F 2 "Fanstel_modules:BC832-BC832" H 2680 2600 20  0001 C CNN
+F 3 "" H 2650 2450 60  0001 C CNN
+	1    2650 2450
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BC832-V1 U2
+U 1 1 5B4B17E8
+P 5550 2450
+F 0 "U2" H 5550 3600 45  0000 C CNN
+F 1 "BC832-V1" H 6750 1550 45  0000 C CNN
+F 2 "Fanstel_modules:BC832-BC832" H 5580 2600 20  0001 C CNN
+F 3 "" H 5550 2450 60  0001 C CNN
+	1    5550 2450
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BM832 U3
+U 1 1 5B4B4B54
+P 8750 3000
+F 0 "U3" H 8850 4700 45  0000 C CNN
+F 1 "BM832" H 10200 1400 45  0000 C CNN
+F 2 "Fanstel_modules:BM832-1-BM832" H 8750 3000 20  0001 C CNN
+F 3 "" H 7350 1450 60  0001 C CNN
+	1    8750 3000
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BM840 U4
+U 1 1 5B4BB0C2
+P 13150 3150
+F 0 "U4" H 13100 4900 45  0000 C CNN
+F 1 "BM840" H 14500 1600 45  0000 C CNN
+F 2 "Fanstel_modules:BM840-1-BM840" H 13150 3800 20  0001 C CNN
+F 3 "" H 11700 1650 60  0001 C CNN
+	1    13150 3150
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BT840 U8
+U 1 1 5B4C58AF
+P 12850 8300
+F 0 "U8" H 12850 10200 45  0000 C CNN
+F 1 "BT840" H 15300 7250 45  0000 C CNN
+F 2 "Fanstel_modules:BT840-BT840" H 12680 8450 20  0001 C CNN
+F 3 "" H 12650 8300 60  0001 C CNN
+	1    12850 8300
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BT832L U6
+U 1 1 5B4C594A
+P 3900 7300
+F 0 "U6" H 3750 8300 45  0000 C CNN
+F 1 "BT832L" H 5250 6250 45  0000 C CNN
+F 2 "Fanstel_modules:BT832-BT832L" H 3980 7450 20  0001 C CNN
+F 3 "" H 3950 7300 60  0001 C CNN
+	1    3900 7300
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BT832X U7
+U 1 1 5B4C5C94
+P 7900 8300
+F 0 "U7" H 7900 10200 45  0000 C CNN
+F 1 "BT832X" H 9200 7300 45  0000 C CNN
+F 2 "Fanstel_modules:BT832X-BT832X" H 7980 8400 20  0001 C CNN
+F 3 "" H 7950 8250 60  0001 C CNN
+	1    7900 8300
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BC805M U5
+U 1 1 61507A2A
+P 1300 7150
+F 0 "U5" H 1325 7697 60  0000 C CNN
+F 1 "BC805M" H 1325 7591 60  0000 C CNN
+F 2 "Fanstel_modules:BC805M" H 650 7000 60  0001 C CNN
+F 3 "" H 650 7000 60  0001 C CNN
+	1    1300 7150
+	1    0    0    -1  
+$EndComp
+$Comp
+L Fanstel-modules:BT40F U9
+U 1 1 615374C6
+P 18900 8225
+F 0 "U9" H 19000 10229 45  0000 C CNN
+F 1 "BT40F" H 19000 10145 45  0000 C CNN
+F 2 "Fanstel_modules:BT40F" H 18730 8375 20  0001 C CNN
+F 3 "" H 18700 8225 60  0001 C CNN
+	1    18900 8225
+	1    0    0    -1  
+$EndComp
+$EndSCHEMATC
