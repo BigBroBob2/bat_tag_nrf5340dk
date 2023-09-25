@@ -120,8 +120,8 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
             
-            NRF_P0->PIN_CNF[12] = 1;
-            NRF_P0->OUTSET |= 1 << 12;
+            // NRF_P0->PIN_CNF[12] = 1;
+            // NRF_P0->OUTSET |= 1 << 12;
 
             ICM_readSensor();
             memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data));   
@@ -139,7 +139,7 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));    
             // k_sem_give(&ICM_write_semaphore);
 
-            NRF_P0->OUTCLR |= 1 << 12;
+            // NRF_P0->OUTCLR |= 1 << 12;
 
             // printk("ICM th end\n");
     }
@@ -148,8 +148,8 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
 
 ISR_DIRECT_DECLARE(ICM_handler)
 {   
-    NRF_P0->PIN_CNF[11] = 1;
-    NRF_P0->OUTSET |= 1 << 11;
+    // NRF_P0->PIN_CNF[11] = 1;
+    // NRF_P0->OUTSET |= 1 << 11;
 
     // https://github.com/gcmcnutt/HeadTracker/blob/4d5e3fb4793d519110b5812090c64401381d3b56/firmware/src/src/targets/nrf52/PPMIn.cpp#L191
     ISR_DIRECT_HEADER();
@@ -159,7 +159,7 @@ ISR_DIRECT_DECLARE(ICM_handler)
             NRF_GPIOTE0->EVENTS_IN[7] = 0;
         }
 
-    NRF_P0->OUTCLR |= 1 << 11;
+    // NRF_P0->OUTCLR |= 1 << 11;
 
     return 0;
 }
@@ -253,8 +253,8 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             // we don't want to record IMU and change ICM_count during IMU data writing
             
-            NRF_P0->PIN_CNF[26] = 1;
-            NRF_P0->OUTSET |= 1 << 26;
+            // NRF_P0->PIN_CNF[26] = 1;
+            // NRF_P0->OUTSET |= 1 << 26;
 
             // NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
             // NVIC_DisableIRQ(GPIOTE0_IRQn);
@@ -277,7 +277,7 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // irq_enable(GPIOTE0_IRQn);
             // NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
 
-            NRF_P0->OUTCLR |= 1 << 26;
+            // NRF_P0->OUTCLR |= 1 << 26;
         
 
             
