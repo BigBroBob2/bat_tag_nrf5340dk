@@ -5,4 +5,5 @@
   (lib (name "ICM-42688-P")(type "KiCad")(uri "G:/JHU/CullenLab/bat_tag/PCB/Chenhao_library/ICM-42688-P/ICM-42688-P.kicad_sym")(options "")(descr ""))
   (lib (name "MEM2075-00-140-01-A")(type "KiCad")(uri "G:/JHU/CullenLab/bat_tag/PCB/Chenhao_library/MEM2075-00-140-01-A/MEM2075-00-140-01-A.kicad_sym")(options "")(descr ""))
   (lib (name "SPH0655LM4H-1")(type "KiCad")(uri "G:/JHU/CullenLab/bat_tag/PCB/Chenhao_library/SPH0655LM4H-1/SPH0655LM4H-1.kicad_sym")(options "")(descr ""))
+  (lib (name "Bat_tag_Library")(type "KiCad")(uri "${KIPRJMOD}/Bat_tag_Library.kicad_sym")(options "")(descr ""))
 )
