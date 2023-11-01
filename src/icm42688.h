@@ -17,6 +17,8 @@
 #define ICM_INT_SOURCE0    101
 #define ICM_INT_CONFIG1    100
 
+#define ICM_INTF_CONFIG5   123
+
 #define ICM_GYRO_CONFIG0   79
 #define ICM_ACCEL_CONFIG0  80
 
@@ -237,10 +239,34 @@ int ICM_readSensor() {
     return 0;
 }
 
+// GPIO CLKIN pin number P0.26
+#define ICM_CLKIN_pin   26
+
+int ICM_enableCLKIN() {
+    uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+    
+    tx_buf[0] = ICM_SPI_WRITE | ICM_INTF_CONFIG5;
+    // enable as CLKIN
+    tx_buf[1] = 0b00000100;
+    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+        printk("spi_write failed\n");
+    }
+  return 0;
+}
+
 static const struct device *GPIO_dev = DEVICE_DT_GET(DT_NODELABEL(gpio0));
 static struct gpio_callback ICM_INT_cb;
 
-// GPIO INT pin number
+// GPIO INT pin number P0.25
 #define ICM_INT_pin   25
 
 int ICM_enableINT() {

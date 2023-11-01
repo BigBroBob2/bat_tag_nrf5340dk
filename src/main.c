@@ -346,7 +346,7 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
         .lrck_pin = I2S_LRCK,
         .mck_pin = I2S_MCK,
         .sdin_pin = I2S_SDIN,
-        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32,
+        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32, // expected MCK freq
         .ratio = I2S_CONFIG_RATIO_RATIO_32X,
         .irq_priority = NRFX_I2S_DEFAULT_CONFIG_IRQ_PRIORITY,
         .mode = NRF_I2S_MODE_MASTER,
@@ -478,6 +478,19 @@ void main(void)
 
     /// config SPI first
     ICM_SPI_config();
+
+    // Use external clock (nRF generate clock for ICM)
+    // Use LFSYNT (32.768 kHz synthesized from HFCLK) in order to sync with PCLK32M and I2S (where PCLK32M -> MCK=1MHz)
+    // Set LFCLK to let P0.26 give 32.768 kHz clock
+    // Set LFCLK source as LFSYNT
+    NRF_CLOCK->LFCLKSRC = 3;
+    // Start LFCLK
+    NRF_CLOCK->TASKS_LFCLKSTART = 1;
+    // check LFCLK stat
+    // printk("NRF_CLOCK->LFCLKSTAT=%08x\n",NRF_CLOCK->LFCLKSTAT);
+
+    
+    ICM_enableCLKIN();
     
     // set ICM samping rate
     ICM_setSamplingRate(rate_idx);
@@ -518,27 +531,30 @@ void main(void)
     }
     printk("I2S configured\n");
 
-    // f_actual = f_source / floor(1048576*4096/MCKFREQ)
+    // The actual MCK freq: f_actual = f_source / floor(1048576*4096/MCKFREQ), here we use f_source=32MHz
     printk("NRF I2S0 CONFIG.MCKFREQ = %d, f_actual = %.3f\n", NRF_I2S0->CONFIG.MCKFREQ, 0.00745*NRF_I2S0->CONFIG.MCKFREQ);
    
 
     //////////////////////////////////////////////// bluetooth uart 
     // init button
-    error = dk_buttons_init(button_changed);
-	if (error) {
-		printk("Cannot init buttons (error: %d)\n", error);
-	}
+    // error = dk_buttons_init(button_changed);
+	// if (error) {
+	// 	printk("Cannot init buttons (error: %d)\n", error);
+	// }
 
     //// init led
-    error = dk_leds_init();
-	if (error) {
-		printk("Cannot init LEDs (error: %d)\n", error);
-	}
+    // error = dk_leds_init();
+	// if (error) {
+	// 	printk("Cannot init LEDs (error: %d)\n", error);
+	// }
 
     error = bt_enable(NULL);
-	if (error) {
-		led_show_error();
+    if (error) {
+		printk("Cannot enable bluetooth (error: %d)\n", error);
 	}
+	// if (error) {
+	// 	led_show_error();
+	// }
 
     printk("Bluetooth initialized\n");
 
@@ -630,6 +646,8 @@ void main(void)
     NVIC_DisableIRQ(GPIOTE0_IRQn);
     irq_disable(GPIOTE0_IRQn);
     
+    // Stop LFCLK
+    NRF_CLOCK->TASKS_LFCLKSTOP = 1;
 
     k_msleep(1000);
 

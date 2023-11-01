@@ -227,20 +227,20 @@ static struct bt_nus_cb nus_cb = {
 
 
 
-static void num_comp_reply(bool accept)
-{
-	if (accept) {
-		bt_conn_auth_passkey_confirm(auth_conn);
-		printk("Numeric Match, conn %p\n", (void *)auth_conn);
+// static void num_comp_reply(bool accept)
+// {
+// 	if (accept) {
+// 		bt_conn_auth_passkey_confirm(auth_conn);
+// 		printk("Numeric Match, conn %p\n", (void *)auth_conn);
 
-	} else {
-		bt_conn_auth_cancel(auth_conn);
-		printk("Numeric Reject, conn %p\n", (void *)auth_conn);
+// 	} else {
+// 		bt_conn_auth_cancel(auth_conn);
+// 		printk("Numeric Reject, conn %p\n", (void *)auth_conn);
 
-		// bt_conn_unref(auth_conn);
-		auth_conn = NULL;
-}
-	}
+// 		// bt_conn_unref(auth_conn);
+// 		auth_conn = NULL;
+// }
+// 	}
 
 	
 
@@ -262,13 +262,13 @@ void button_changed(uint32_t button_state, uint32_t has_changed)
 
 
 
-void led_show_error(void)
-{
-	dk_set_leds_state(DK_ALL_LEDS_MSK, DK_NO_LEDS_MSK);
+// void led_show_error(void)
+// {
+// 	dk_set_leds_state(DK_ALL_LEDS_MSK, DK_NO_LEDS_MSK);
 
-	while (true) {
-		/* Spin for ever */
-		k_sleep(K_MSEC(1000));
-	}
-}
+// 	while (true) {
+// 		/* Spin for ever */
+// 		k_sleep(K_MSEC(1000));
+// 	}
+// }
 
