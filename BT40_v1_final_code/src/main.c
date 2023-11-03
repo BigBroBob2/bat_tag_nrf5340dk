@@ -100,9 +100,8 @@ static short imu_rbuf[6]; // small read buf to get direct data each time IRQ
 static short imu_buf[N_circular_buf]; // IMU buffer
 static short imu_cw_buf[N_circular_buf]; // IMU count write buffer
 static int32_t imu_t[1]; // timestamp for each IMU sample
-static short *imu_p = &imu_buf[0]; // pointer to current buffer head
+// static short *imu_p = &imu_buf[0]; // pointer to current buffer head
 static uint16_t ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
-
 static uint16_t ICM_cw=0;
 
 /////// ICM thread
@@ -120,8 +119,8 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
             
-            NRF_P1->PIN_CNF[2] = 1;
-            NRF_P1->OUTSET |= 1 << 2;
+            // NRF_P0->PIN_CNF[12] = 1;
+            // NRF_P0->OUTSET |= 1 << 12;
 
             ICM_readSensor();
             memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data));   
@@ -139,7 +138,7 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));    
             // k_sem_give(&ICM_write_semaphore);
 
-            NRF_P1->OUTCLR |= 1 << 2;
+            // NRF_P0->OUTCLR |= 1 << 12;
 
             // printk("ICM th end\n");
     }
@@ -177,9 +176,10 @@ atomic_t processing_in_progress = ATOMIC_INIT(0x00);
 atomic_t dropout_occurred = ATOMIC_INIT(0x00);
 
 static uint32_t mic_t[1];
+static bool throw_away_first_i2s_buffer = true;
 
 #define BYTES_PER_SAMPLE 4
-#define AUDIO_BUFFER_N_SAMPLES 4096
+#define AUDIO_BUFFER_N_SAMPLES 8192
 #define AUDIO_BUFFER_BYTE_SIZE (BYTES_PER_SAMPLE * AUDIO_BUFFER_N_SAMPLES)
 #define AUDIO_BUFFER_WORD_SIZE (AUDIO_BUFFER_BYTE_SIZE / 4)
 
@@ -203,18 +203,12 @@ nrfx_i2s_buffers_t nrfx_i2s_buffers_2 = {
 K_THREAD_STACK_DEFINE(processing_thread_stack_area, PROCESSING_THREAD_STACK_SIZE);
 struct k_thread processing_thread_data;
 
-uint32_t processing_sem_give_time = 0;
-
 static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         
 
         if (k_sem_take(&processing_thread_semaphore, K_USEC(1)) == 0) {
-            
-            if (!atomic_test_bit(&processing_in_progress, 0)) {
-                printk("processing_in_progress is not set");
-                __ASSERT(atomic_test_bit(&processing_in_progress, 0), "processing_in_progress is not set");
-            }
+
 
             if (atomic_test_bit(&dropout_occurred, 0)) {
                 printk("dropout_occurred\n");
@@ -223,31 +217,20 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             
 
-            // uint32_t processing_sem_take_time = k_cycle_get_32();
-            // uint32_t cycles_spent = processing_sem_take_time - processing_sem_give_time;
-            // uint32_t ns_spent = k_cyc_to_ns_ceil32(cycles_spent);
-            // printk("processing thread start took %d ns\n", ns_spent); 
-
-            
-
-            
+            if (!atomic_test_bit(&processing_in_progress, 0)) {
+                printk("processing_in_progress is not set");
+                __ASSERT(atomic_test_bit(&processing_in_progress, 0), "processing_in_progress is not set");
+            }
 
             nrfx_i2s_buffers_t* buffers_to_process = processing_buffers_1 ? &nrfx_i2s_buffers_1 : &nrfx_i2s_buffers_2;
             int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
 
-            // printk("rx_buffer_len=%d\n", sizeof(rx_1)/sizeof(int32_t));
-
             
             ///////////////// somehow mic_data and IMU_data fs_write together can work
-
-            ssize_t err;
-
-            err = fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
-            // if (err) {
-            //     printk("mic_file fs_write error = %d\n", err);
-            // }
-            // printk("rx = %08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x,%08x\n", rx[0],rx[1],rx[2],rx[3],rx[4],
-            //             rx[5],rx[6],rx[7],rx[8],rx[9],rx[10],rx[11],rx[12],rx[13],rx[14],rx[15]);
+            if (throw_away_first_i2s_buffer) {
+                fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
+                throw_away_first_i2s_buffer = false;
+            }   
 
             /* Swap buffers */
             nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
@@ -257,6 +240,7 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             }
             processing_buffers_1 = !processing_buffers_1;   
 
+            
 
 
             
@@ -265,7 +249,8 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             // we don't want to record IMU and change ICM_count during IMU data writing
             
-            
+            // NRF_P0->PIN_CNF[26] = 1;
+            // NRF_P0->OUTSET |= 1 << 26;
 
             // NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
             // NVIC_DisableIRQ(GPIOTE0_IRQn);
@@ -278,21 +263,17 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
                 // printk("ICM_count=%d, ICM_cw=%d\n",ICM_count,ICM_cw);
 
-                err = fs_write(&imu_count_file, &imu_cw_buf,ICM_cw*sizeof(short));
-                // if (err) {
-                //     printk("imu_count_file fs_write error = %d\n", err);
-                // }
-                err = fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
-                // if (err) {
-                //     printk("imu_file fs_write error = %d\n", err);
-                // }
-
+                // fs_write(&imu_count_file,&ICM_count,sizeof(ICM_count));
+                fs_write(&imu_count_file, &imu_cw_buf,ICM_cw*sizeof(short));
+                fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
+                // ICM_count = 0;
+                // imu_p = &imu_buf[ICM_count];
             // NRF_GPIOTE->INTENSET |= 0x00000080;
             // NVIC_EnableIRQ(GPIOTE0_IRQn);
             // irq_enable(GPIOTE0_IRQn);
             // NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
 
-            
+            // NRF_P0->OUTCLR |= 1 << 26;
         
 
             
@@ -387,6 +368,7 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
 	return true;
 }
 
+static int trial_count = 0;
 
 void main(void)
 {   
@@ -398,11 +380,61 @@ void main(void)
 
     lsdir(disk_mount_pt);
 
+    //////////////////////////////////////////////// bluetooth uart 
+    error = bt_enable(NULL);
+	if (error) {
+		led_show_error();
+	}
+
+    printk("Bluetooth initialized\n");
+
+    k_sem_give(&ble_init_ok);
+
+    settings_load();
+
+    error = bt_nus_init(&nus_cb);
+	if (error) {
+		printk("Failed to initialize UART service (error: %d)\n", error);
+		return 0;
+	}
+
+    // start advertising
+    error = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
+			      ARRAY_SIZE(sd));
+	if (error) {
+		printk("Advertising failed to start (error %d)\n", error);
+		return 0;
+	}
+
+    
+
+    
+    /// Here starts multiple trial loop
+    while (true) {
+    // wait for bluetooth command
+    while (!current_conn) {
+        printk("Trial %02d, Wait for bluetooth connection..\n", trial_count);
+        k_msleep(1000);
+    } 
+
+    // Reset variables at the start of each trial
+    {
+        imu_count_idx[0]=0;
+        imu_circle_buf.read_idx = 0;
+        imu_circle_buf.write_idx = 0;
+        count_circle_buf.read_idx = 0;
+        count_circle_buf.write_idx = 0;
+
+        processing_buffers_1 = 0;   
+        throw_away_first_i2s_buffer = true;
+
+    }
+
     //////// mic_file for microphone audio data
     fs_file_t_init(&mic_file);
     printk("Opening mic_file path\n");
     char mic_filename[30];
-	sprintf(&mic_filename, "/SD:/audio001.dat"); 
+	sprintf(&mic_filename, "/SD:/audio_%02d.dat", trial_count); 
 
     // delete mic_file if exist
     fs_unlink(mic_filename);
@@ -413,26 +445,11 @@ void main(void)
 			return 0;
 		}
 
-    //////// mic_t_file for microphone time data
-    // fs_file_t_init(&mic_t_file);
-    // printk("Opening mic_t_file path\n");
-    // char mic_t_filename[30];
-	// sprintf(&mic_t_filename, "/SD:/audio_t.dat"); 
-
-    // // delete mic_t_file if exist
-    // fs_unlink(mic_t_filename);
-
-	// error = fs_open(&mic_t_file, mic_t_filename, FS_O_CREATE | FS_O_WRITE);
-    // if (error) {
-	// 		printk("Error opening mic_t_file [%03d]\n", error);
-	// 		return 0;
-	// 	}
-
     ///////// imu_file for IMU data
     fs_file_t_init(&imu_file);
     printk("Opening imu_file path\n");
     char imu_filename[30];
-	sprintf(&imu_filename, "/SD:/imu.dat"); 
+	sprintf(&imu_filename, "/SD:/imu_%02d.dat", trial_count); 
 
     // delete imu_file if exist
     fs_unlink(imu_filename);
@@ -447,7 +464,7 @@ void main(void)
     fs_file_t_init(&imu_t_file);
     printk("Opening imu_t_file path\n");
     char imu_t_filename[30];
-	sprintf(&imu_t_filename, "/SD:/imu_t.dat"); 
+	sprintf(&imu_t_filename, "/SD:/imu_t_%02d.dat",trial_count); 
 
     // delete imu_t_file if exist
     fs_unlink(imu_t_filename);
@@ -462,7 +479,7 @@ void main(void)
     fs_file_t_init(&imu_count_file);
     printk("Opening imu_count_file path\n");
     char imu_count_filename[30];
-	sprintf(&imu_count_filename, "/SD:/imu_c.dat"); 
+	sprintf(&imu_count_filename, "/SD:/imu_c_%02d.dat",trial_count); 
 
     // delete imu_count_file if exist
     fs_unlink(imu_count_filename);
@@ -489,7 +506,7 @@ void main(void)
     printk("Value of NRF_SPI2->PSEL.SCK : %d \n",NRF_SPIM2->PSEL.SCK);
     printk("Value of NRF_SPI2->PSEL.MOSI : %d \n",NRF_SPIM2->PSEL.MOSI);
     printk("Value of NRF_SPI2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
-    printk("Value of NRF_SPI2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
+    // printk("Value of NRF_SPI2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
 
     /// config SPI first
     ICM_SPI_config();
@@ -527,71 +544,36 @@ void main(void)
 	}
     printk("I2S device is ready\n");
 
+    if (trial_count == 0) {
     if (!configure_i2s_rx(i2s_rx_dev)) {
         printk("Failed to config streams\n", i2s_rx_dev->name);
 		return 0;
     }
     printk("I2S configured\n");
+    }
 
     // f_actual = f_source / floor(1048576*4096/MCKFREQ)
     printk("NRF I2S0 CONFIG.MCKFREQ = %d, f_actual = %.3f\n", NRF_I2S0->CONFIG.MCKFREQ, 0.00745*NRF_I2S0->CONFIG.MCKFREQ);
    
 
-    //////////////////////////////////////////////// bluetooth uart 
-    // init button
-    error = dk_buttons_init(button_changed);
-	if (error) {
-		printk("Cannot init buttons (error: %d)\n", error);
-	}
-
-    //// init led
-    error = dk_leds_init();
-	if (error) {
-		printk("Cannot init LEDs (error: %d)\n", error);
-	}
-
-    error = bt_enable(NULL);
-	if (error) {
-		led_show_error();
-	}
-
-    printk("Bluetooth initialized\n");
-
-    k_sem_give(&ble_init_ok);
-
-    settings_load();
-
-    error = bt_nus_init(&nus_cb);
-	if (error) {
-		printk("Failed to initialize UART service (error: %d)\n", error);
-		return 0;
-	}
-
-    // start advertising
-    error = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
-			      ARRAY_SIZE(sd));
-	if (error) {
-		printk("Advertising failed to start (error %d)\n", error);
-		return 0;
-	}
-
-    NRF_P1->PIN_CNF[2] = 1;
-    NRF_P1->OUTSET |= 1 << 2;
-
-    // wait for bluetooth command
-    while (!current_conn) {
-        printk("Wait for bluetooth connection..\n");
-
-        NRF_P1->OUT ^= 1 << 2;
-
-        k_msleep(1000);
-    } 
+    
 
 
     //////////////////////// START SAMPLE
-    
+    // try to use thread to read ICM data
+    k_tid_t ICM_thread_tid = k_thread_create(
+        &ICM_thread_data,
+        ICM_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(ICM_thread_stack_area),
+        ICM_thread_entry_point,
+        NULL, NULL, NULL,
+        ICM_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+    // gpio_add_callback(GPIO_dev, &ICM_INT_cb);
 
-    
+    // start I2S
+    error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
+    printk("I2S streams started\n");
 
     // enable GPIOTE
     NRF_GPIOTE0->EVENTS_IN[7] = 0;
@@ -602,52 +584,18 @@ void main(void)
     NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
     NVIC_EnableIRQ(GPIOTE0_IRQn);
     irq_enable(GPIOTE0_IRQn);
-
-    // try to use thread to read ICM data
-    k_tid_t ICM_thread_tid = k_thread_create(
-        &ICM_thread_data,
-        ICM_thread_stack_area,
-        K_THREAD_STACK_SIZEOF(ICM_thread_stack_area),
-        ICM_thread_entry_point,
-        NULL, NULL, NULL,
-        ICM_THREAD_PRIORITY, 0, K_NO_WAIT
-    );
-  
-
-    // start I2S
-    error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
-    printk("I2S streams started, error=%d\n", error);
     
-    
-
-
     ///////////////////////////////////////// loop
-    int while_count = 1;
-    int while_end = 600000;
-
     while (current_conn){
-        // printk("While loop %d\n", while_count);
-        // printk("ICM_count = %d\n", ICM_count);
-
-        // k_sem_give(&ICM_thread_semaphore);
-        // k_usleep(800); // not real IMU sampling rate
-        
-        // if (while_count >= while_end) {
-        //     break;
-        // }
-        // while_count++;
-
-        // if (NRF_GPIOTE->EVENTS_IN[7]) {
-        //     k_sem_give(&ICM_thread_semaphore);
-        //     NRF_GPIOTE->EVENTS_IN[7] = 0;
-        // }
         k_msleep(1000);
     }
     
     ///////////////////// after loop
 
-    nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
-                                  NRF_I2S_INT_TXPTRUPD_MASK);
+    // nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
+    //                               NRF_I2S_INT_TXPTRUPD_MASK);
+    nrfx_i2s_stop();
+
     k_thread_abort(ICM_thread_tid);
     NRF_GPIOTE->INTENCLR |= 0x00000080;
     nrf_gpiote_event_disable(NRF_GPIOTE0, 7);
@@ -660,13 +608,17 @@ void main(void)
 
 	printk("Stream stopped\n");
 
-	printk("mic_file named \"audio001.dat\" successfully created\n");		
+	printk("File named in trial %02d successfully created\n", trial_count);		
 	fs_close(&mic_file);
-    // fs_close(&mic_t_file);
     fs_close(&imu_file);
     fs_close(&imu_t_file);
     fs_close(&imu_count_file);
 
     k_msleep(1000);
     lsdir(disk_mount_pt);
+
+    // bt_le_adv_stop();
+
+    trial_count = trial_count + 1;
+}
 }
