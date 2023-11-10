@@ -176,7 +176,7 @@ atomic_t processing_in_progress = ATOMIC_INIT(0x00);
 atomic_t dropout_occurred = ATOMIC_INIT(0x00);
 
 static uint32_t mic_t[1];
-static bool throw_away_first_i2s_buffer = true;
+
 
 #define BYTES_PER_SAMPLE 4
 #define AUDIO_BUFFER_N_SAMPLES 8192
@@ -227,10 +227,7 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             
             ///////////////// somehow mic_data and IMU_data fs_write together can work
-            if (throw_away_first_i2s_buffer) {
-                fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
-                throw_away_first_i2s_buffer = false;
-            }   
+            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
 
             /* Swap buffers */
             nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
@@ -243,11 +240,11 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             
 
 
-            
+            // can use this as timestamp of next audio buffer start
             imu_t[0] = k_cycle_get_32();
             fs_write(&imu_t_file,&imu_t,sizeof(imu_t));
 
-            // we don't want to record IMU and change ICM_count during IMU data writing
+            // we record IMU and change ICM_count with circular buffer during IMU data writing
             
             // NRF_P0->PIN_CNF[26] = 1;
             // NRF_P0->OUTSET |= 1 << 26;
@@ -318,8 +315,8 @@ void nrfx_i2s_data_handler(nrfx_i2s_buffers_t const *p_released, uint32_t status
 Configure i2s driver using zephyr functions, 
 which are kind of convenient and by using them we don't need to set register values and later define RX buffers.
 
-We only care about SCK (bit stream freq) and LRCK is in fact meaningless, 
-so we need to play around word_size and frame_clk_freq to let it find a feasiable SCK
+We only care about SCK (bit stream freq) and LRCK is in fact meaningless;
+change nrfx_i2s_cfg.mck_setup to choose different MCK freq
 */
 static bool configure_i2s_rx(const struct device *i2s_rx_dev)
 {	
@@ -426,7 +423,7 @@ void main(void)
         count_circle_buf.write_idx = 0;
 
         processing_buffers_1 = 0;   
-        throw_away_first_i2s_buffer = true;
+        
 
     }
 
@@ -616,6 +613,7 @@ void main(void)
 
     k_msleep(1000);
     lsdir(disk_mount_pt);
+    k_msleep(1000);
 
     // bt_le_adv_stop();
 
