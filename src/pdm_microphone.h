@@ -13,8 +13,8 @@ Use I2S interface to transfer bit stream from PDM microphone
 
 #define I2S_MCK    (32+9) 
 #define I2S_SCK    (32+10)
-#define I2S_LRCK   (32+11)
-#define I2S_SDIN   (32+12)
+#define I2S_LRCK   (32+12)
+#define I2S_SDIN   (32+11)
 
 typedef void (*audio_processing_callback_t)(
   void* cb_data,

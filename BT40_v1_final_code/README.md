@@ -1,1 +1,0 @@
-# bat_tag_nrf5340dk
