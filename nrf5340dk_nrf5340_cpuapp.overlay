@@ -17,14 +17,15 @@ spi_dev2: &spi2 {
 
 
 // second ICM42688 with I2C
-// i2c_dev: &i2c1 {
-// 	status = "okay";
-// 	compatible = "nordic,nrf-twim";
-// 	label = "I2C_1";
-// 	pinctrl-0 = <&i2c1_default>;
-// 	pinctrl-1 = <&i2c1_sleep>;
-// 	pinctrl-names = "default", "sleep";
-// };
+i2c_dev1: &i2c1 {
+	label = "i2c_dev1";
+	status = "okay";
+	compatible = "nordic,nrf-twim";
+	pinctrl-0 = <&i2c1_default>;
+	pinctrl-1 = <&i2c1_sleep>;
+	pinctrl-names = "default", "sleep";
+	clock-frequency = <1000000>;
+};
 
 
 

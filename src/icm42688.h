@@ -9,7 +9,7 @@
 #include <zephyr/drivers/spi.h>
 #include <zephyr/drivers/gpio.h>
 
-
+#include <zephyr/drivers/i2c.h>
 
 //register map
 // Bank 0
@@ -130,12 +130,12 @@ double ICM_ADC2Float(double val) {
 #define ICM_SPI_READ  0b10000000
 
 static struct spi_cs_control cs_control;
-static struct spi_config cfg={0};
+static struct spi_config spi_cfg={0};
 const struct device *spi_dev2=DEVICE_DT_GET(DT_NODELABEL(spi_dev2));
 
 int ICM_SPI_config() {
-  cfg.frequency = 8000000U; // only spi4 has 24000000
-    cfg.operation = SPI_WORD_SET(8);
+  spi_cfg.frequency = 8000000U; // only spi4 has 24000000
+    spi_cfg.operation = SPI_WORD_SET(8);
 
     cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR(DT_NODELABEL(spi_dev2),cs_gpios));
     if (!cs_control.gpio.port) {
@@ -145,7 +145,7 @@ int ICM_SPI_config() {
 	cs_control.gpio.dt_flags = DT_GPIO_FLAGS(DT_NODELABEL(spi_dev2), cs_gpios);
 	cs_control.delay = DELAY_SPI_CS_ACTIVE_US;
 
-	cfg.cs = &cs_control;
+	spi_cfg.cs = &cs_control;
 
   return 0;
 }
@@ -166,13 +166,13 @@ int ICM_setSamplingRate(int rate_idx) {
     
     tx_buf[0] = ICM_SPI_WRITE | ICM_GYRO_CONFIG0;
     tx_buf[1] = rate_idx;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
 
     tx_buf[0] = ICM_SPI_WRITE | ICM_ACCEL_CONFIG0;
     tx_buf[1] = rate_idx;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
   return 0;
@@ -193,13 +193,13 @@ int ICM_enableSensor() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_PWR_MGMT0;
     // enable accel and gyro
     tx_buf[1] = 0b00001111;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
   return 0;
 }
 
-short IMU_data[6];
+static short IMU_data[6];
 
 int ICM_readSensor() {
   uint8_t addr_buf[1] = {0};
@@ -223,7 +223,7 @@ int ICM_readSensor() {
 	};
 
     addr_buf[0] = ICM_SPI_READ | ICM_ACCEL_DATA_X1;
-    if (spi_transceive(spi_dev2,&cfg,&addr_set,&rx_set)) {
+    if (spi_transceive(spi_dev2,&spi_cfg,&addr_set,&rx_set)) {
         printk("spi_transceive failed\n");
     }
 
@@ -264,7 +264,7 @@ int ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG;
     // 
     tx_buf[1] = 0b00000011;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG failed\n");
     }
 
@@ -274,7 +274,7 @@ int ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG1;
     // 
     tx_buf[1] = 0b01100000;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG1 failed\n");
     }
 
@@ -283,7 +283,7 @@ int ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_SOURCE0;
     // 
     tx_buf[1] = 0b00001000;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG0 failed\n");
     }
 
@@ -309,7 +309,7 @@ int ICM_enableINT() {
 	};
 
     addr_buf[0] = ICM_SPI_READ | ICM_INT_CONFIG1;
-    if (spi_transceive(spi_dev2,&cfg,&addr_set,&rx_set)) {
+    if (spi_transceive(spi_dev2,&spi_cfg,&addr_set,&rx_set)) {
         printk("spi_transceive failed\n");
     }
 
@@ -321,5 +321,323 @@ int ICM_enableINT() {
 }
 
 
+//////////////////////////////////////////////////////////////////////
+// config I2C for second ICM-42688-P
+
+#define I2C_SDA (32+2)
+#define I2C_SCL (32+3)
+
+const struct device *i2c_dev1;
+
+static uint8_t i2c_data[2];
+static uint8_t i2c_buf[12];
+
+// I2C addr
+#define I2C_ICM_ADDR 0x69
+
+int ICM_I2C_config() {
+    // define master mode pin configuration when disable TWIM
+    NRF_TWIM1->ENABLE = TWIM_ENABLE_ENABLE_Disabled;
+    NRF_TWIM1->PSEL.SDA = I2C_SDA;
+    NRF_TWIM1->PSEL.SCL = I2C_SCL;
+
+    NRF_TWIM1->FREQUENCY = TWIM_FREQUENCY_FREQUENCY_K1000;
+
+    // enable TWIM
+    NRF_TWIM1->ENABLE = TWIM_ENABLE_ENABLE_Enabled;
+
+  return 0;
+}
+
+int I2C_ICM_setSamplingRate(int rate_idx) {
+
+    
+    // turn on gyro to Low_Noise mode
+    i2c_data[0] = ICM_GYRO_CONFIG0;
+    i2c_data[1] = rate_idx;
+
+    // register configuration
+    NRF_TWIM1->ADDRESS = I2C_ICM_ADDR;
+    NRF_TWIM1->TXD.MAXCNT = 2;
+    NRF_TWIM1->TXD.PTR = &i2c_data[0];
+
+    // IMPORTANT: TWIM does not stop by itself when the entire RAM buffer has been sent, or when an error
+    // occurs. The STOP task must be issued, through the use of shortcut
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
+    
+    NRF_TWIM1->TASKS_STARTTX = 1;
+
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_STOPPED\n");
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
 
 
+    // turn on accel to Low_Noise mode
+    i2c_data[0] = ICM_ACCEL_CONFIG0;
+    i2c_data[1] = rate_idx;
+
+    // register configuration
+    NRF_TWIM1->ADDRESS = I2C_ICM_ADDR;
+    NRF_TWIM1->TXD.MAXCNT = 2;
+    NRF_TWIM1->TXD.PTR = &i2c_data[0];
+
+    // IMPORTANT: TWIM does not stop by itself when the entire RAM buffer has been sent, or when an error
+    // occurs. The STOP task must be issued, through the use of shortcut
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
+    
+    NRF_TWIM1->TASKS_STARTTX = 1;
+
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_STOPPED\n");
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
+
+    
+  return 0;
+}
+
+int I2C_ICM_enableSensor() {
+  
+  // turn on accel and gyro to Low_Noise mode
+    i2c_data[0] = ICM_PWR_MGMT0;
+    i2c_data[1] = 0x0F;
+
+    // register configuration
+    NRF_TWIM1->ADDRESS = I2C_ICM_ADDR;
+    NRF_TWIM1->TXD.MAXCNT = 2;
+    NRF_TWIM1->TXD.PTR = &i2c_data[0];
+
+    // IMPORTANT: TWIM does not stop by itself when the entire RAM buffer has been sent, or when an error
+    // occurs. The STOP task must be issued, through the use of shortcut
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
+    
+    NRF_TWIM1->TASKS_STARTTX = 1;
+
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_STOPPED\n");
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
+
+
+    return 0;
+}
+
+int I2C_ICM_enableINT() {
+
+    static uint8_t data[2];
+  
+    // ICM_INT_CONFIG = 0b00000011
+    // Bit 0 set 1: INT1-active high
+    // Bit 1 set 1: INT1-push-pull
+    // Bit 2 set 0: INT1 pulse
+    data[0] = ICM_INT_CONFIG;
+    data[1] = 0b00000011;
+
+    // register configuration
+    NRF_TWIM1->ADDRESS = I2C_ICM_ADDR;
+    NRF_TWIM1->TXD.MAXCNT = 2;
+    NRF_TWIM1->TXD.PTR = &data[0];
+
+    // IMPORTANT: TWIM does not stop by itself when the entire RAM buffer has been sent, or when an error
+    // occurs. The STOP task must be issued, through the use of shortcut
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
+    
+    NRF_TWIM1->TASKS_STARTTX = 1;
+
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_STOPPED\n");
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
+
+    k_usleep(10);
+  
+    // ICM_INT_CONFIG1 = 0b01100000
+    // Bit 5 set 1: Disables de-assert duration. Required if ODR ≥ 4kHz
+    // Bit 6 set 1:  Interrupt pulse duration is 8 μs. Required if ODR ≥ 4kHz,
+    data[0] = ICM_INT_CONFIG1;
+    data[1] = 0b01100000;
+    
+    // register configuration
+    NRF_TWIM1->ADDRESS = I2C_ICM_ADDR;
+    NRF_TWIM1->TXD.MAXCNT = 2;
+    NRF_TWIM1->TXD.PTR = &data[0];
+
+    // IMPORTANT: TWIM does not stop by itself when the entire RAM buffer has been sent, or when an error
+    // occurs. The STOP task must be issued, through the use of shortcut
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
+    
+    NRF_TWIM1->TASKS_STARTTX = 1;
+
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_STOPPED\n");
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
+
+    k_usleep(10);
+
+    // ICM_INT_SOURCE0 = 
+    // Bit 3 set 1:  UI data ready interrupt routed to INT1
+    data[0] = ICM_INT_SOURCE0;
+    data[1] = 0b00001000;
+    
+    // register configuration
+    NRF_TWIM1->ADDRESS = I2C_ICM_ADDR;
+    NRF_TWIM1->TXD.MAXCNT = 2;
+    NRF_TWIM1->TXD.PTR = &data[0];
+
+    // IMPORTANT: TWIM does not stop by itself when the entire RAM buffer has been sent, or when an error
+    // occurs. The STOP task must be issued, through the use of shortcut
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
+    
+    NRF_TWIM1->TASKS_STARTTX = 1;
+
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_STOPPED\n");
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
+
+
+    return 0;
+
+}
+
+static short I2C_IMU_data[6];
+
+static int fail_i = 0;
+
+int I2C_ICM_readSensor() {
+
+    /* Read 12 bytes together, then get accel and gyro sensor data 
+    */
+
+    i2c_data[0] = ICM_ACCEL_DATA_X1;
+    
+    // register configuration
+    NRF_TWIM1->ADDRESS = I2C_ICM_ADDR;
+    NRF_TWIM1->TXD.MAXCNT = 1;
+    NRF_TWIM1->TXD.PTR = &i2c_data[0];
+
+    // IMPORTANT: TWIM does not stop by itself when the entire RAM buffer has been sent, or when an error
+    // occurs. The STOP task must be issued, through the use of shortcut
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
+    
+    NRF_TWIM1->TASKS_STARTTX = 1;
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+     
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
+
+    // k_usleep(10);
+
+
+    NRF_TWIM1->RXD.MAXCNT = 12;
+    NRF_TWIM1->RXD.PTR = &i2c_buf[0];
+    NRF_TWIM1->SHORTS = TWIM_SHORTS_LASTRX_STOP_Msk;
+    NRF_TWIM1->TASKS_STARTRX = 1;
+
+    while ((!(NRF_TWIM1->EVENTS_STOPPED)) && (!(NRF_TWIM1->EVENTS_ERROR))) {
+        __WFE();
+        __SEV();
+    }
+    if (NRF_TWIM1->EVENTS_STOPPED) {
+    NRF_TWIM1->EVENTS_STOPPED = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+     printk("EVENTS_STOPPED\n");
+    }
+
+    if (NRF_TWIM1->EVENTS_ERROR) {
+    NRF_TWIM1->EVENTS_ERROR = 0;
+    NRF_TWIM1->TASKS_STOP = 1;
+    printk("EVENTS_ERROR\n");
+    }
+
+
+    I2C_IMU_data[0] = (short)((i2c_buf[0] << 8)  | i2c_buf[1]);
+    I2C_IMU_data[1] = (short)((i2c_buf[2] << 8)  | i2c_buf[3]);
+    I2C_IMU_data[2] = (short)((i2c_buf[4] << 8)  | i2c_buf[5]);
+    I2C_IMU_data[3] = (short)((i2c_buf[6] << 8)  | i2c_buf[7]);
+    I2C_IMU_data[4] = (short)((i2c_buf[8] << 8)  | i2c_buf[9]);
+    I2C_IMU_data[5] = (short)((i2c_buf[10] << 8) | i2c_buf[11]);
+
+    // printk("%d\n",I2C_IMU_data[0]);
+
+    return 0;
+}
