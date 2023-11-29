@@ -129,23 +129,23 @@ double ICM_ADC2Float(double val) {
 #define ICM_SPI_WRITE 0b00000000
 #define ICM_SPI_READ  0b10000000
 
-static struct spi_cs_control cs_control;
-static struct spi_config cfg={0};
+static struct spi_cs_control spi_dev2_cs_control;
+static struct spi_config spi_dev2_cfg={0};
 const struct device *spi_dev2=DEVICE_DT_GET(DT_NODELABEL(spi_dev2));
 
 int ICM_SPI_config() {
-  cfg.frequency = 8000000U; // only spi4 has 24000000
-    cfg.operation = SPI_WORD_SET(8);
+  spi_dev2_cfg.frequency = 8000000U; // only spi4 has 24000000
+    spi_dev2_cfg.operation = SPI_WORD_SET(8);
 
-    cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR(DT_NODELABEL(spi_dev2),cs_gpios));
-    if (!cs_control.gpio.port) {
+    spi_dev2_cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR(DT_NODELABEL(spi_dev2),cs_gpios));
+    if (!spi_dev2_cs_control.gpio.port) {
         printk("cannot find CS GPIO device\n");
 	}
-    cs_control.gpio.pin = DT_GPIO_PIN(DT_NODELABEL(spi_dev2), cs_gpios);
-	cs_control.gpio.dt_flags = DT_GPIO_FLAGS(DT_NODELABEL(spi_dev2), cs_gpios);
-	cs_control.delay = DELAY_SPI_CS_ACTIVE_US;
+    spi_dev2_cs_control.gpio.pin = DT_GPIO_PIN(DT_NODELABEL(spi_dev2), cs_gpios);
+	spi_dev2_cs_control.gpio.dt_flags = DT_GPIO_FLAGS(DT_NODELABEL(spi_dev2), cs_gpios);
+	spi_dev2_cs_control.delay = DELAY_SPI_CS_ACTIVE_US;
 
-	cfg.cs = &cs_control;
+	spi_dev2_cfg.cs = &spi_dev2_cs_control;
 
   return 0;
 }
@@ -166,13 +166,13 @@ int ICM_setSamplingRate(int rate_idx) {
     
     tx_buf[0] = ICM_SPI_WRITE | ICM_GYRO_CONFIG0;
     tx_buf[1] = rate_idx;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev2_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
 
     tx_buf[0] = ICM_SPI_WRITE | ICM_ACCEL_CONFIG0;
     tx_buf[1] = rate_idx;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev2_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
   return 0;
@@ -193,7 +193,7 @@ int ICM_enableSensor() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_PWR_MGMT0;
     // enable accel and gyro
     tx_buf[1] = 0b00001111;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev2_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
   return 0;
@@ -223,7 +223,7 @@ int ICM_readSensor() {
 	};
 
     addr_buf[0] = ICM_SPI_READ | ICM_ACCEL_DATA_X1;
-    if (spi_transceive(spi_dev2,&cfg,&addr_set,&rx_set)) {
+    if (spi_transceive(spi_dev2,&spi_dev2_cfg,&addr_set,&rx_set)) {
         printk("spi_transceive failed\n");
     }
 
@@ -264,7 +264,7 @@ int ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG;
     // 
     tx_buf[1] = 0b00000011;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev2_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG failed\n");
     }
 
@@ -274,7 +274,7 @@ int ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG1;
     // 
     tx_buf[1] = 0b01100000;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev2_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG1 failed\n");
     }
 
@@ -283,7 +283,7 @@ int ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_SOURCE0;
     // 
     tx_buf[1] = 0b00001000;
-    if (spi_write(spi_dev2,&cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev2_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG0 failed\n");
     }
 
@@ -309,7 +309,7 @@ int ICM_enableINT() {
 	};
 
     addr_buf[0] = ICM_SPI_READ | ICM_INT_CONFIG1;
-    if (spi_transceive(spi_dev2,&cfg,&addr_set,&rx_set)) {
+    if (spi_transceive(spi_dev2,&spi_dev2_cfg,&addr_set,&rx_set)) {
         printk("spi_transceive failed\n");
     }
 
@@ -320,6 +320,194 @@ int ICM_enableINT() {
   return 0;
 }
 
+///////////////////////////////////////////////////////////////////////////////////////
+// config second SPI for second IMU
 
+static struct spi_cs_control spi_dev1_cs_control;
+static struct spi_config spi_dev1_cfg={0};
+const struct device *spi_dev1=DEVICE_DT_GET(DT_NODELABEL(spi_dev1));
+
+int H_ICM_SPI_config() {
+  spi_dev1_cfg.frequency = 8000000U; // only spi4 has 24000000
+    spi_dev1_cfg.operation = SPI_WORD_SET(8);
+
+    spi_dev1_cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR(DT_NODELABEL(spi_dev1),cs_gpios));
+    if (!spi_dev1_cs_control.gpio.port) {
+        printk("cannot find CS GPIO device\n");
+	}
+    spi_dev1_cs_control.gpio.pin = DT_GPIO_PIN(DT_NODELABEL(spi_dev1), cs_gpios);
+	spi_dev1_cs_control.gpio.dt_flags = DT_GPIO_FLAGS(DT_NODELABEL(spi_dev1), cs_gpios);
+	spi_dev1_cs_control.delay = DELAY_SPI_CS_ACTIVE_US;
+
+	spi_dev1_cfg.cs = &spi_dev1_cs_control;
+
+  return 0;
+}
+
+int H_ICM_setSamplingRate(int rate_idx) {
+  uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+    
+    tx_buf[0] = ICM_SPI_WRITE | ICM_GYRO_CONFIG0;
+    tx_buf[1] = rate_idx;
+    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+        printk("spi_write failed\n");
+    }
+
+    tx_buf[0] = ICM_SPI_WRITE | ICM_ACCEL_CONFIG0;
+    tx_buf[1] = rate_idx;
+    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+        printk("spi_write failed\n");
+    }
+  return 0;
+}
+
+int H_ICM_enableSensor() {
+  uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+    
+    tx_buf[0] = ICM_SPI_WRITE | ICM_PWR_MGMT0;
+    // enable accel and gyro
+    tx_buf[1] = 0b00001111;
+    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+        printk("spi_write failed\n");
+    }
+  return 0;
+}
+
+short H_IMU_data[6];
+
+int H_ICM_readSensor() {
+  uint8_t addr_buf[1] = {0};
+  struct spi_buf spi_addr_buf = {
+            .buf = addr_buf,
+            .len = sizeof(addr_buf)
+        };
+  struct spi_buf_set addr_set = {
+		.buffers = &spi_addr_buf,
+		.count = 1
+	};
+
+  uint8_t rx_buf[13] = {0};
+  struct spi_buf spi_rx_buf = {
+            .buf = rx_buf,
+            .len = sizeof(rx_buf)
+        };
+  struct spi_buf_set rx_set = {
+		.buffers = &spi_rx_buf,
+		.count = 1
+	};
+
+    addr_buf[0] = ICM_SPI_READ | ICM_ACCEL_DATA_X1;
+    if (spi_transceive(spi_dev1,&spi_dev1_cfg,&addr_set,&rx_set)) {
+        printk("spi_transceive failed\n");
+    }
+
+    H_IMU_data[0] = (short)((rx_buf[1] << 8) | rx_buf[2]);
+    H_IMU_data[1] = (short)((rx_buf[3] << 8) | rx_buf[4]);
+    H_IMU_data[2] = (short)((rx_buf[5] << 8) | rx_buf[6]);
+    H_IMU_data[3] = (short)((rx_buf[7] << 8) | rx_buf[8]);
+    H_IMU_data[4] = (short)((rx_buf[9] << 8) | rx_buf[10]);
+    H_IMU_data[5] = (short)((rx_buf[11] << 8) | rx_buf[12]);
+
+    return 0;
+}
+
+
+// GPIO INT pin number
+#define H_ICM_INT_pin   30
+
+int H_ICM_enableINT() {
+  // Enable INT output pin.
+
+  
+  uint8_t tx_buf[2] = {0};
+    struct spi_buf spi_tx_buf = {
+            .buf = tx_buf,
+            .len = sizeof(tx_buf)
+        };
+    struct spi_buf_set tx_set = {
+		.buffers = &spi_tx_buf,
+		.count = 1
+	};
+    
+  //ICM_INT_CONFIG
+  // Bit 0 set 1: INT1-active high
+  // Bit 1 set 1: INT1-push-pull
+  // Bit 2 set 0: INT1 pulse
+    tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG;
+    // 
+    tx_buf[1] = 0b00000011;
+    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+        printk("ICM_INT_CONFIG failed\n");
+    }
+
+    //ICM_INT_CONFIG1
+  // Bit 5 set 1: Disables de-assert duration. Required if ODR ≥ 4kHz
+  // Bit 6 set 1:  Interrupt pulse duration is 8 μs. Required if ODR ≥ 4kHz,
+    tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG1;
+    // 
+    tx_buf[1] = 0b01100000;
+    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+        printk("ICM_INT_CONFIG1 failed\n");
+    }
+
+    //ICM_INT_SOURCE0
+  // Bit 3 set 1:  UI data ready interrupt routed to INT1
+    tx_buf[0] = ICM_SPI_WRITE | ICM_INT_SOURCE0;
+    // 
+    tx_buf[1] = 0b00001000;
+    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+        printk("ICM_INT_CONFIG0 failed\n");
+    }
+
+  // check register values
+  uint8_t addr_buf[1] = {0};
+    struct spi_buf spi_addr_buf = {
+            .buf = addr_buf,
+            .len = sizeof(addr_buf)
+        };
+    struct spi_buf_set addr_set = {
+		.buffers = &spi_addr_buf,
+		.count = 1
+	};
+
+    uint8_t rx_buf[3] = {0};
+    struct spi_buf spi_rx_buf = {
+            .buf = rx_buf,
+            .len = sizeof(rx_buf)
+        };
+    struct spi_buf_set rx_set = {
+		.buffers = &spi_rx_buf,
+		.count = 1
+	};
+
+    addr_buf[0] = ICM_SPI_READ | ICM_INT_CONFIG1;
+    if (spi_transceive(spi_dev1,&spi_dev1_cfg,&addr_set,&rx_set)) {
+        printk("spi_transceive failed\n");
+    }
+
+    printk("ICM_INT_CONFIG1=0x%02x,ICM_INT_SOURCE0=0x%02x\n", rx_buf[1],rx_buf[2]);
+
+    
+  
+  return 0;
+}
 
 

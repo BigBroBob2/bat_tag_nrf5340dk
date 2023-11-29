@@ -11,18 +11,17 @@
 #include "SDcard.h"
 #endif
 
+#include "circular_buffer.h"
+
 #include <nrfx_log.h>
 #include <nrfx_gpiote.h>
 
-/////////////////////////////////////////////////////////////////////////// Define circular buffer
-#define N_circular_buf 1024
-typedef struct {
-    short *buf; // actuall capacity = N-1
-    int write_idx; // idx to write into circular buf
-    int read_idx; // idx to read out from circular buf
-} circular_buf;
+// define order is important, must define before use
+static int trial_count = 0;
 
-static short imu_cbuf[N_circular_buf]; // IMU circular buffer
+/////////////////////////////////////////////////////////////////////////// Define circular buffer
+// IMU circular buffer
+static short imu_cbuf[N_circular_buf]; 
 // IMU sample data circular buffer
 circular_buf imu_circle_buf = {
     .buf = imu_cbuf,
@@ -30,81 +29,139 @@ circular_buf imu_circle_buf = {
     .read_idx = 0
 };
 
-static uint16_t imu_count_idx[1]={0};
-static short imu_count_buf[N_circular_buf]; // IMU count circular buffer
-// IMU sample count circular buffer
-circular_buf count_circle_buf = {
-    .buf = imu_count_buf,
+// IMU count circular buffer
+// static uint16_t imu_count_idx[1]={0};
+// static short imu_count_buf[N_circular_buf]; 
+// // IMU sample count circular buffer
+// circular_buf count_circle_buf = {
+//     .buf = imu_count_buf,
+//     .write_idx = 0,
+//     .read_idx = 0
+// };
+
+
+
+// 2nd SPI IMU circular buffer
+static short H_imu_cbuf[N_circular_buf]; 
+// 2nd SPI IMU sample data circular buffer
+circular_buf H_imu_circle_buf = {
+    .buf = H_imu_cbuf,
     .write_idx = 0,
     .read_idx = 0
 };
 
-bool is_empty(circular_buf *buf) {
-    if (buf->read_idx == buf->write_idx) {
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
-bool is_full(circular_buf *buf) {
-    if ((buf->write_idx + 1) % N_circular_buf == buf->read_idx) {
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-
-int buf_length(circular_buf *buf) {
-    // NRF_GPIOTE->INTENCLR |= 0x00000080;
-    int temp = (buf->write_idx - buf->read_idx + N_circular_buf) % N_circular_buf;
-    // NRF_GPIOTE->INTENSET |= 0x00000080;
-    return temp;
-}
-
-int write_in_buf(circular_buf *buf, short *value, int L) {
-    // L should be sizeof(value)/sizeof(short)
-    if (L + buf_length(buf) > N_circular_buf-1) {
-        printk("circular_buf out of range\n");
-        return -1;
-    }
-    
-    for (int i = 0;i < L;i++) {
-        buf->buf[buf->write_idx] = value[i];
-        buf->write_idx = (buf->write_idx + 1) % N_circular_buf;
-    }
-    return 0;
-}
-
-int read_out_buf(circular_buf *buf, short *value, uint16_t *buf_l) {
-    uint16_t L = (uint16_t)buf_length(buf);
-    buf_l[0] = L;
-    for (int i=0;i<L;i++) {
-        value[i] = buf->buf[buf->read_idx];
-        buf->read_idx = (buf->read_idx + 1) % N_circular_buf;
-    }
-    // if (L > 0) {
-    //     printk("buf_length=%d\n, write_idx=%d, read_idx=%d\n",L, buf->write_idx, buf->read_idx);
-    // }
-    return 0;
-}
+// 2nd SPI IMU count circular buffer
+// static uint16_t H_imu_count_idx[1]={0};
+// static short H_imu_count_buf[N_circular_buf]; 
+// // 2nd SPI IMU sample count circular buffer
+// circular_buf H_count_circle_buf = {
+//     .buf = H_imu_count_buf,
+//     .write_idx = 0,
+//     .read_idx = 0
+// };
 /////////////////////////////////////////////////////////////////////////// finish define circular buf
 
-
 /// SD card data file
-static struct fs_file_t mic_file, imu_file, imu_t_file, imu_count_file;
+static struct fs_file_t mic_file;
 
+static struct fs_file_t imu_t_file;
+
+static struct fs_file_t imu_file;
+// static struct fs_file_t imu_count_file;
+
+static struct fs_file_t H_imu_file;
+// static struct fs_file_t H_imu_count_file;
+
+static int define_files() {
+    int error;
+    char filename[30];
+    //////// mic_file for microphone audio data
+    fs_file_t_init(&mic_file);
+    printk("Opening mic_file path\n");
+	sprintf(&filename, "/SD:/audio_%02d.dat", trial_count); 
+
+    // delete mic_file if exist
+    fs_unlink(filename);
+
+	error = fs_open(&mic_file, filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening mic_file [%03d]\n", error);
+			return 0;
+		}
+
+    ///////// imu_file for IMU data
+    fs_file_t_init(&imu_file);
+    printk("Opening imu_file path\n");
+
+	sprintf(&filename, "/SD:/imu_%02d.dat", trial_count); 
+
+    // delete imu_file if exist
+    fs_unlink(filename);
+
+	error = fs_open(&imu_file, filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening imu_file [%03d]\n", error);
+			return 0;
+		}
+
+    //////// imu_t_file for ICM time data
+    fs_file_t_init(&imu_t_file);
+    printk("Opening imu_t_file path\n");
+
+	sprintf(&filename, "/SD:/imu_t_%02d.dat",trial_count); 
+
+    // delete imu_t_file if exist
+    fs_unlink(filename);
+
+	error = fs_open(&imu_t_file, filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening imu_t_file [%03d]\n", error);
+			return 0;
+		}
+
+    ///////// H_imu_file for 2nd head IMU data
+    fs_file_t_init(&H_imu_file);
+    printk("Opening H_imu_file path\n");
+
+	sprintf(&filename, "/SD:/h_imu_%02d.dat", trial_count); 
+
+    // delete H_imu_file if exist
+    fs_unlink(filename);
+
+	error = fs_open(&H_imu_file, filename, FS_O_CREATE | FS_O_WRITE);
+    if (error) {
+			printk("Error opening H_imu_file [%03d]\n", error);
+			return 0;
+		}
+
+
+    //////// imu_count_file for ICM count data
+    // fs_file_t_init(&imu_count_file);
+    // printk("Opening imu_count_file path\n");
+
+	// sprintf(&filename, "/SD:/imu_c_%02d.dat",trial_count); 
+
+    // // delete imu_count_file if exist
+    // fs_unlink(filename);
+
+	// error = fs_open(&imu_count_file, filename, FS_O_CREATE | FS_O_WRITE);
+    // if (error) {
+	// 		printk("Error opening imu_count_file [%03d]\n", error);
+	// 		return 0;
+	// 	}
+
+    // return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////// ICM thread
+// SPI ICM thread
 static short imu_rbuf[6]; // small read buf to get direct data each time IRQ
 static short imu_buf[N_circular_buf]; // IMU buffer
 static short imu_cw_buf[N_circular_buf]; // IMU count write buffer
-static int32_t imu_t[1]; // timestamp for each IMU sample
-// static short *imu_p = &imu_buf[0]; // pointer to current buffer head
+static int32_t imu_t[1]; // timestamp for each buffer writing 
 static uint16_t ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
 static uint16_t ICM_cw=0;
 
-/////// ICM thread
 struct k_thread ICM_thread_data;
 /*ICM processing thread*/
 #define ICM_THREAD_STACK_SIZE 2048
@@ -112,58 +169,80 @@ struct k_thread ICM_thread_data;
 #define ICM_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(ICM_thread_stack_area, ICM_THREAD_STACK_SIZE);
 K_SEM_DEFINE(ICM_thread_semaphore, 0, 1);
-K_SEM_DEFINE(processing_thread_semaphore, 0, 1);
-// K_SEM_DEFINE(ICM_write_semaphore, 1, 1);
 
 static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
-            
-            // NRF_P0->PIN_CNF[12] = 1;
-            // NRF_P0->OUTSET |= 1 << 12;
 
             ICM_readSensor();
             memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data));   
-            // imu_t[ICM_count] = k_cycle_get_32();
 
             // write data into circular buf
             write_in_buf(&imu_circle_buf,imu_rbuf,6);
 
-            imu_count_idx[0]++;
-            write_in_buf(&count_circle_buf, imu_count_idx,1);
+            // imu_count_idx[0]++;
+            // write_in_buf(&count_circle_buf, imu_count_idx,1);
+    }
+}
+}
 
-            // ICM_count++;
-            // imu_p = &imu_buf[6*ICM_count];
+// 2nd SPI ICM thread
+static short H_imu_rbuf[6]; // small read buf to get direct data each time IRQ
+static short H_imu_buf[N_circular_buf]; // IMU buffer
+static short H_imu_cw_buf[N_circular_buf]; // IMU count write buffer
+static uint16_t H_ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
+static uint16_t H_ICM_cw=0;
 
-            // fs_write(&imu_file,&IMU_data[0],sizeof(IMU_data));    
-            // k_sem_give(&ICM_write_semaphore);
+struct k_thread H_ICM_thread_data;
+/*ICM processing thread*/
+#define H_ICM_THREAD_STACK_SIZE 2048
+/* ICM thread is a priority cooperative thread, less than PDM mic*/
+#define H_ICM_THREAD_PRIORITY -16
+K_THREAD_STACK_DEFINE(H_ICM_thread_stack_area, H_ICM_THREAD_STACK_SIZE);
+K_SEM_DEFINE(H_ICM_thread_semaphore, 0, 1);
 
-            // NRF_P0->OUTCLR |= 1 << 12;
+static void H_ICM_thread_entry_point(void *p1, void *p2, void *p3) {
+    while (true) {
+        if (k_sem_take(&H_ICM_thread_semaphore, K_FOREVER) == 0) {
+            
+            // NRF_P0->PIN_CNF[31] = 1;
+            // NRF_P0->OUT |= 1 << 31;
 
-            // printk("ICM th end\n");
+            H_ICM_readSensor();
+            memcpy(H_imu_rbuf,&H_IMU_data[0],sizeof(H_IMU_data));   
+
+            // write data into circular buf
+            write_in_buf(&H_imu_circle_buf,H_imu_rbuf,6);
+
+            // H_imu_count_idx[0]++;
+            // write_in_buf(&H_count_circle_buf, H_imu_count_idx,1);
+
+            // NRF_P0->OUTCLR |= 1 << 31;
     }
 }
 }
 
 ISR_DIRECT_DECLARE(ICM_handler)
 {   
-    // NRF_P0->PIN_CNF[11] = 1;
-    // NRF_P0->OUTSET |= 1 << 11;
-
     // https://github.com/gcmcnutt/HeadTracker/blob/4d5e3fb4793d519110b5812090c64401381d3b56/firmware/src/src/targets/nrf52/PPMIn.cpp#L191
     ISR_DIRECT_HEADER();
     // printk("EVENTS_IN[7]=%d, CONFIG[7].PSEL=0x%x\n",NRF_GPIOTE0->EVENTS_IN[7],NRF_GPIOTE0->CONFIG[7]);
-    if (NRF_GPIOTE0->EVENTS_IN[7]) {
-            k_sem_give(&ICM_thread_semaphore);
-            NRF_GPIOTE0->EVENTS_IN[7] = 0;
-        }
+    if (NRF_GPIOTE0->EVENTS_IN[6]) {
 
-    // NRF_P0->OUTCLR |= 1 << 11;
+            NRF_GPIOTE0->EVENTS_IN[6] = 0;
+            k_sem_give(&H_ICM_thread_semaphore);
+        
+        }
+    else if (NRF_GPIOTE0->EVENTS_IN[7]) {
+        NRF_GPIOTE0->EVENTS_IN[7] = 0;
+            k_sem_give(&ICM_thread_semaphore);
+            
+        }
 
     return 0;
 }
 
-////////////////////////// I2S PDM mic
+//////////////////////////////////////////////////////////////////////////////////// I2S PDM mic
 
 /* Flag indicating which buffer pair is currently available for
    processing/rendering. */
@@ -201,6 +280,7 @@ nrfx_i2s_buffers_t nrfx_i2s_buffers_2 = {
 /* Processing thread is a top priority cooperative thread */
 #define PROCESSING_THREAD_PRIORITY -15
 K_THREAD_STACK_DEFINE(processing_thread_stack_area, PROCESSING_THREAD_STACK_SIZE);
+K_SEM_DEFINE(processing_thread_semaphore, 0, 1);
 struct k_thread processing_thread_data;
 
 static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
@@ -255,16 +335,16 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // NRF_GPIOTE->INTENCLR |= 0x00000080;
                 //read out circualr buf
                 read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
-                
-                read_out_buf(&count_circle_buf, imu_cw_buf, &ICM_cw);
+                // read_out_buf(&count_circle_buf, imu_cw_buf, &ICM_cw);
 
-                // printk("ICM_count=%d, ICM_cw=%d\n",ICM_count,ICM_cw);
+                read_out_buf(&H_imu_circle_buf,H_imu_buf,&H_ICM_count);
+                // read_out_buf(&H_count_circle_buf, H_imu_cw_buf, &H_ICM_cw);
 
-                // fs_write(&imu_count_file,&ICM_count,sizeof(ICM_count));
-                fs_write(&imu_count_file, &imu_cw_buf,ICM_cw*sizeof(short));
+                // fs_write(&imu_count_file, &imu_cw_buf,ICM_cw*sizeof(short));
+                // fs_write(&H_imu_count_file, &H_imu_cw_buf,H_ICM_cw*sizeof(short));
                 fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
-                // ICM_count = 0;
-                // imu_p = &imu_buf[ICM_count];
+                fs_write(&H_imu_file, &H_imu_buf,H_ICM_count*sizeof(short));
+
             // NRF_GPIOTE->INTENSET |= 0x00000080;
             // NVIC_EnableIRQ(GPIOTE0_IRQn);
             // irq_enable(GPIOTE0_IRQn);
@@ -365,8 +445,6 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
 	return true;
 }
 
-static int trial_count = 0;
-
 void main(void)
 {   
     int error;
@@ -406,7 +484,7 @@ void main(void)
     
 
     
-    /// Here starts multiple trial loop
+    ///////////////////////////////////////// Here starts multiple trial loop
     while (true) {
     // wait for bluetooth command
     while (!current_conn) {
@@ -416,77 +494,51 @@ void main(void)
 
     // Reset variables at the start of each trial
     {
-        imu_count_idx[0]=0;
+        // imu_count_idx[0]=0;
         imu_circle_buf.read_idx = 0;
         imu_circle_buf.write_idx = 0;
-        count_circle_buf.read_idx = 0;
-        count_circle_buf.write_idx = 0;
+        // count_circle_buf.read_idx = 0;
+        // count_circle_buf.write_idx = 0;
+
+        // H_imu_count_idx[0]=0;
+        H_imu_circle_buf.read_idx = 0;
+        H_imu_circle_buf.write_idx = 0;
+        // H_count_circle_buf.read_idx = 0;
+        // H_count_circle_buf.write_idx = 0;
 
         processing_buffers_1 = 0;   
-        
-
     }
 
-    //////// mic_file for microphone audio data
-    fs_file_t_init(&mic_file);
-    printk("Opening mic_file path\n");
-    char mic_filename[30];
-	sprintf(&mic_filename, "/SD:/audio_%02d.dat", trial_count); 
+    
+    define_files();
 
-    // delete mic_file if exist
-    fs_unlink(mic_filename);
+    //////////////////////////////////////////////// SPI for second IMU
 
-	error = fs_open(&mic_file, mic_filename, FS_O_CREATE | FS_O_WRITE);
-    if (error) {
-			printk("Error opening mic_file [%03d]\n", error);
-			return 0;
-		}
+    // check ICM binding
+    if (!spi_dev1) {
+        printk("spi_dev1 Binding failed.");
+        return;
+    }
 
-    ///////// imu_file for IMU data
-    fs_file_t_init(&imu_file);
-    printk("Opening imu_file path\n");
-    char imu_filename[30];
-	sprintf(&imu_filename, "/SD:/imu_%02d.dat", trial_count); 
+    printk("Value of NRF_SPIM1->PSEL.SCK : %d \n",NRF_SPIM1->PSEL.SCK);
+    printk("Value of NRF_SPIM1->PSEL.MOSI : %d \n",NRF_SPIM1->PSEL.MOSI);
+    printk("Value of NRF_SPIM1->PSEL.MISO : %d \n",NRF_SPIM1->PSEL.MISO);
 
-    // delete imu_file if exist
-    fs_unlink(imu_filename);
+    /// config SPI first
+    H_ICM_SPI_config();
 
-	error = fs_open(&imu_file, imu_filename, FS_O_CREATE | FS_O_WRITE);
-    if (error) {
-			printk("Error opening imu_file [%03d]\n", error);
-			return 0;
-		}
+    // set ICM samping rate
+    H_ICM_setSamplingRate(rate_idx);
 
-    //////// imu_t_file for ICM time data
-    fs_file_t_init(&imu_t_file);
-    printk("Opening imu_t_file path\n");
-    char imu_t_filename[30];
-	sprintf(&imu_t_filename, "/SD:/imu_t_%02d.dat",trial_count); 
+    // enable interrupt
+    H_ICM_enableINT();
 
-    // delete imu_t_file if exist
-    fs_unlink(imu_t_filename);
+    // enable sensor
+    H_ICM_enableSensor();
 
-	error = fs_open(&imu_t_file, imu_t_filename, FS_O_CREATE | FS_O_WRITE);
-    if (error) {
-			printk("Error opening imu_t_file [%03d]\n", error);
-			return 0;
-		}
+    
 
-    //////// imu_count_file for ICM count data
-    fs_file_t_init(&imu_count_file);
-    printk("Opening imu_count_file path\n");
-    char imu_count_filename[30];
-	sprintf(&imu_count_filename, "/SD:/imu_c_%02d.dat",trial_count); 
-
-    // delete imu_count_file if exist
-    fs_unlink(imu_count_filename);
-
-	error = fs_open(&imu_count_file, imu_count_filename, FS_O_CREATE | FS_O_WRITE);
-    if (error) {
-			printk("Error opening imu_count_file [%03d]\n", error);
-			return 0;
-		}
-
+    
 
     ////////////////////////////////////////////  SPI devices IMU
 
@@ -497,13 +549,13 @@ void main(void)
 
     // check ICM binding
     if (!spi_dev2) {
-        printk("SPI_2 Binding failed.");
+        printk("spi_dev2 Binding failed.");
         return;
     }
-    printk("Value of NRF_SPI2->PSEL.SCK : %d \n",NRF_SPIM2->PSEL.SCK);
-    printk("Value of NRF_SPI2->PSEL.MOSI : %d \n",NRF_SPIM2->PSEL.MOSI);
-    printk("Value of NRF_SPI2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
-    // printk("Value of NRF_SPI2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
+    printk("Value of NRF_SPIM2->PSEL.SCK : %d \n",NRF_SPIM2->PSEL.SCK);
+    printk("Value of NRF_SPIM2->PSEL.MOSI : %d \n",NRF_SPIM2->PSEL.MOSI);
+    printk("Value of NRF_SPIM2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
+    // printk("Value of NRF_SPIM2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
 
     /// config SPI first
     ICM_SPI_config();
@@ -514,13 +566,33 @@ void main(void)
     // enable interrupt
     ICM_enableINT();
 
+    // enable sensor
+    ICM_enableSensor();
+    
+    // while(1) {
+
+    //     H_ICM_readSensor();
+    //     printk("%d, %d, %d, ", H_IMU_data[0],H_IMU_data[1],H_IMU_data[2]);
+
+    //     ICM_readSensor();
+    //     printk("%d, %d, %d \n", IMU_data[0],IMU_data[1],IMU_data[2]);
+        
+    //     k_msleep(500);
+    // }
+
     // GPIO configure interrupt
     // gpio_pin_interrupt_configure(GPIO_dev,ICM_INT_pin,GPIO_INT_EDGE_RISING);
     // gpio_init_callback(&ICM_INT_cb,ICM_INT_handler,BIT(ICM_INT_pin));
-
     // GPIOTE0 for secure
     IRQ_DIRECT_CONNECT(GPIOTE0_IRQn, 0, ICM_handler, 0);
+
     
+
+
+    // try give semaphore as IMU interrupt
+    // Event mode, P0.30 for interrupt, when rising edge
+    // check NRF_GPIOTE->EVENTS_IN[0]
+    nrf_gpiote_event_configure(NRF_GPIOTE0,6,30,GPIOTE_CONFIG_POLARITY_LoToHi);
 
     // try give semaphore as IMU interrupt
     // Event mode, P0.25 for interrupt, when rising edge
@@ -529,9 +601,8 @@ void main(void)
     nrf_gpiote_event_configure(NRF_GPIOTE0,7,25,GPIOTE_CONFIG_POLARITY_LoToHi);
     
 
-    // enable sensor
-    ICM_enableSensor();
-    
+    k_msleep(10);
+
     //////////////////////////////////////////////// I2S for PDM mic
 
     const struct device *const i2s_rx_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_rx_dev));
@@ -556,7 +627,7 @@ void main(void)
     
 
 
-    //////////////////////// START SAMPLE
+    ///////////////////////////////////////////////////////////////// START SAMPLE
     // try to use thread to read ICM data
     k_tid_t ICM_thread_tid = k_thread_create(
         &ICM_thread_data,
@@ -568,6 +639,16 @@ void main(void)
     );
     // gpio_add_callback(GPIO_dev, &ICM_INT_cb);
 
+    // use another thread to read 2nd ICM data
+    k_tid_t H_ICM_thread_tid = k_thread_create(
+        &H_ICM_thread_data,
+        H_ICM_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(H_ICM_thread_stack_area),
+        H_ICM_thread_entry_point,
+        NULL, NULL, NULL,
+        H_ICM_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+
     // start I2S
     error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
     printk("I2S streams started\n");
@@ -575,8 +656,11 @@ void main(void)
     // enable GPIOTE
     NRF_GPIOTE0->EVENTS_IN[7] = 0;
     NRF_GPIOTE->INTENSET |= 0x00000080;
+    NRF_GPIOTE0->EVENTS_IN[6] = 0;
+    NRF_GPIOTE->INTENSET |= 0x00000040;
     // enable gpiote event (IMU INT)
     nrf_gpiote_event_enable(NRF_GPIOTE0, 7);
+    nrf_gpiote_event_enable(NRF_GPIOTE0, 6);
     // enable GPIOTE IRQ
     NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
     NVIC_EnableIRQ(GPIOTE0_IRQn);
@@ -589,16 +673,22 @@ void main(void)
     
     ///////////////////// after loop
 
-    // nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
-    //                               NRF_I2S_INT_TXPTRUPD_MASK);
-    nrfx_i2s_stop();
+    nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
+                                  NRF_I2S_INT_TXPTRUPD_MASK);
+    // nrfx_i2s_stop();
 
     k_thread_abort(ICM_thread_tid);
-    NRF_GPIOTE->INTENCLR |= 0x00000080;
-    nrf_gpiote_event_disable(NRF_GPIOTE0, 7);
+    k_thread_abort(H_ICM_thread_tid);
+
     NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
     NVIC_DisableIRQ(GPIOTE0_IRQn);
     irq_disable(GPIOTE0_IRQn);
+
+    NRF_GPIOTE->INTENCLR |= 0x00000080 + 0x00000040;
+    nrf_gpiote_event_disable(NRF_GPIOTE0, 7);
+    // NRF_GPIOTE->INTENCLR |= 0x00000040;
+    nrf_gpiote_event_disable(NRF_GPIOTE0, 6);
+
     
 
     k_msleep(1000);
@@ -608,8 +698,9 @@ void main(void)
 	printk("File named in trial %02d successfully created\n", trial_count);		
 	fs_close(&mic_file);
     fs_close(&imu_file);
+    fs_close(&H_imu_file);
     fs_close(&imu_t_file);
-    fs_close(&imu_count_file);
+    // fs_close(&imu_count_file);
 
     k_msleep(1000);
     lsdir(disk_mount_pt);
