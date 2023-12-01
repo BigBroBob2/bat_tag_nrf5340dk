@@ -41,7 +41,7 @@ int buf_length(circular_buf *buf) {
 int write_in_buf(circular_buf *buf, short *value, int L) {
     // L should be sizeof(value)/sizeof(short)
     if (L + buf_length(buf) > N_circular_buf-1) {
-        printk("circular_buf out of range\n");
+        printk("circular_buf out of range, buf_length=%d \n", buf_length(buf));
         return -1;
     }
     

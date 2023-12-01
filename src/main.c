@@ -23,7 +23,7 @@ static int trial_count = 0;
 // IMU circular buffer
 static short imu_cbuf[N_circular_buf]; 
 // IMU sample data circular buffer
-circular_buf imu_circle_buf = {
+static circular_buf imu_circle_buf = {
     .buf = imu_cbuf,
     .write_idx = 0,
     .read_idx = 0
@@ -44,7 +44,7 @@ circular_buf imu_circle_buf = {
 // 2nd SPI IMU circular buffer
 static short H_imu_cbuf[N_circular_buf]; 
 // 2nd SPI IMU sample data circular buffer
-circular_buf H_imu_circle_buf = {
+static circular_buf H_imu_circle_buf = {
     .buf = H_imu_cbuf,
     .write_idx = 0,
     .read_idx = 0
@@ -492,22 +492,6 @@ void main(void)
         k_msleep(1000);
     } 
 
-    // Reset variables at the start of each trial
-    {
-        // imu_count_idx[0]=0;
-        imu_circle_buf.read_idx = 0;
-        imu_circle_buf.write_idx = 0;
-        // count_circle_buf.read_idx = 0;
-        // count_circle_buf.write_idx = 0;
-
-        // H_imu_count_idx[0]=0;
-        H_imu_circle_buf.read_idx = 0;
-        H_imu_circle_buf.write_idx = 0;
-        // H_count_circle_buf.read_idx = 0;
-        // H_count_circle_buf.write_idx = 0;
-
-        processing_buffers_1 = 0;   
-    }
 
     
     define_files();
@@ -649,9 +633,30 @@ void main(void)
         H_ICM_THREAD_PRIORITY, 0, K_NO_WAIT
     );
 
+    // reset cirular buffer idx and processing_buffers
+        // Reset variables at the start of each trial
+    // imu_count_idx[0]=0;
+    imu_circle_buf.read_idx = 0;
+    imu_circle_buf.write_idx = 0;
+    // count_circle_buf.read_idx = 0;
+    // count_circle_buf.write_idx = 0;
+
+    // H_imu_count_idx[0]=0;
+    H_imu_circle_buf.read_idx = 0;
+    H_imu_circle_buf.write_idx = 0;
+    // H_count_circle_buf.read_idx = 0;
+    // H_count_circle_buf.write_idx = 0;
+
+    processing_buffers_1 = 0;   
+
+    
+    printk("Starting I2S stream..\n");
+
     // start I2S
     error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
-    printk("I2S streams started\n");
+    
+    nrf_i2s_int_enable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
+                                  NRF_I2S_INT_TXPTRUPD_MASK);
 
     // enable GPIOTE
     NRF_GPIOTE0->EVENTS_IN[7] = 0;
@@ -665,6 +670,12 @@ void main(void)
     NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
     NVIC_EnableIRQ(GPIOTE0_IRQn);
     irq_enable(GPIOTE0_IRQn);
+
+    while (current_conn) 
+    {   
+        printk("buf_length_imu=%d, buf_length_H_imu=%d\n",buf_length(&imu_circle_buf),buf_length(&H_imu_circle_buf));
+        k_msleep(1);
+    }
     
     ///////////////////////////////////////// loop
     while (current_conn){
@@ -684,9 +695,9 @@ void main(void)
     NVIC_DisableIRQ(GPIOTE0_IRQn);
     irq_disable(GPIOTE0_IRQn);
 
-    NRF_GPIOTE->INTENCLR |= 0x00000080 + 0x00000040;
+    NRF_GPIOTE->INTENCLR |= 0x00000080;
     nrf_gpiote_event_disable(NRF_GPIOTE0, 7);
-    // NRF_GPIOTE->INTENCLR |= 0x00000040;
+    NRF_GPIOTE->INTENCLR |= 0x00000040;
     nrf_gpiote_event_disable(NRF_GPIOTE0, 6);
 
     
