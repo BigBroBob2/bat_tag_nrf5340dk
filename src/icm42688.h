@@ -199,7 +199,10 @@ int ICM_enableSensor() {
   return 0;
 }
 
-short IMU_data[6];
+// 0-5: IMU data
+// 6-7: sampling time
+// 8: sampling count
+short IMU_data[9] = {0};
 
 int ICM_readSensor() {
   uint8_t addr_buf[1] = {0};
@@ -391,7 +394,7 @@ int H_ICM_enableSensor() {
   return 0;
 }
 
-short H_IMU_data[6];
+short H_IMU_data[9] = {0};
 
 int H_ICM_readSensor() {
   uint8_t addr_buf[1] = {0};

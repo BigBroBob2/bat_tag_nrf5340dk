@@ -155,10 +155,10 @@ static int define_files() {
 
 //////////////////////////////////////////////////////////////////////////////// ICM thread
 // SPI ICM thread
-static short imu_rbuf[6]; // small read buf to get direct data each time IRQ
+static short imu_rbuf[9]; // small read buf to get direct data each time IRQ
 static short imu_buf[N_circular_buf]; // IMU buffer
 static short imu_cw_buf[N_circular_buf]; // IMU count write buffer
-static int32_t imu_t[1]; // timestamp for each buffer writing 
+static int32_t imu_t; // timestamp for each IMU writing 
 static uint16_t ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
 static uint16_t ICM_cw=0;
 
@@ -175,10 +175,16 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
 
             ICM_readSensor();
-            memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data));   
+             
+            imu_t = k_cycle_get_32();
+            IMU_data[6] = imu_t >> 16;
+            IMU_data[7] = imu_t & 0x0000FFFF;
+            IMU_data[8]++; 
+
+            memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data)); 
 
             // write data into circular buf
-            write_in_buf(&imu_circle_buf,imu_rbuf,6);
+            write_in_buf(&imu_circle_buf,imu_rbuf,9);
 
             // imu_count_idx[0]++;
             // write_in_buf(&count_circle_buf, imu_count_idx,1);
@@ -187,9 +193,10 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
 }
 
 // 2nd SPI ICM thread
-static short H_imu_rbuf[6]; // small read buf to get direct data each time IRQ
+static short H_imu_rbuf[9]; // small read buf to get direct data each time IRQ
 static short H_imu_buf[N_circular_buf]; // IMU buffer
 static short H_imu_cw_buf[N_circular_buf]; // IMU count write buffer
+static int32_t H_imu_t; // timestamp for each IMU writing 
 static uint16_t H_ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
 static uint16_t H_ICM_cw=0;
 
@@ -209,10 +216,16 @@ static void H_ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             // NRF_P0->OUT |= 1 << 31;
 
             H_ICM_readSensor();
-            memcpy(H_imu_rbuf,&H_IMU_data[0],sizeof(H_IMU_data));   
+
+            H_imu_t = k_cycle_get_32();
+            H_IMU_data[6] = H_imu_t >> 16;
+            H_IMU_data[7] = H_imu_t & 0x0000FFFF;
+            H_IMU_data[8]++;
+
+            memcpy(H_imu_rbuf,&H_IMU_data[0],sizeof(H_IMU_data)); 
 
             // write data into circular buf
-            write_in_buf(&H_imu_circle_buf,H_imu_rbuf,6);
+            write_in_buf(&H_imu_circle_buf,H_imu_rbuf,9);
 
             // H_imu_count_idx[0]++;
             // write_in_buf(&H_count_circle_buf, H_imu_count_idx,1);
@@ -321,8 +334,8 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
 
             // can use this as timestamp of next audio buffer start
-            imu_t[0] = k_cycle_get_32();
-            fs_write(&imu_t_file,&imu_t,sizeof(imu_t));
+            mic_t[0] = k_cycle_get_32();
+            fs_write(&imu_t_file,&mic_t,sizeof(mic_t));
 
             // we record IMU and change ICM_count with circular buffer during IMU data writing
             
@@ -647,7 +660,11 @@ void main(void)
     // H_count_circle_buf.read_idx = 0;
     // H_count_circle_buf.write_idx = 0;
 
-    processing_buffers_1 = 0;   
+    processing_buffers_1 = 0;  
+
+    // clear count
+    IMU_data[8] = 0;
+    H_IMU_data[8] = 0;
 
     
     printk("Starting I2S stream..\n");
