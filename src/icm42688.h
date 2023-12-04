@@ -135,14 +135,14 @@ const struct device *spi_dev2=DEVICE_DT_GET(DT_NODELABEL(spi_dev2));
 
 int ICM_SPI_config() {
   spi_dev2_cfg.frequency = 8000000U; // only spi4 has 24000000
-    spi_dev2_cfg.operation = SPI_WORD_SET(8);
+    spi_dev2_cfg.operation = SPI_WORD_SET(8) | SPI_MODE_CPOL | SPI_MODE_CPHA;
 
-    spi_dev2_cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR(DT_NODELABEL(spi_dev2),cs_gpios));
+    spi_dev2_cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR_BY_IDX(DT_NODELABEL(spi_dev2),cs_gpios, 0));
     if (!spi_dev2_cs_control.gpio.port) {
         printk("cannot find CS GPIO device\n");
 	}
-    spi_dev2_cs_control.gpio.pin = DT_GPIO_PIN(DT_NODELABEL(spi_dev2), cs_gpios);
-	spi_dev2_cs_control.gpio.dt_flags = DT_GPIO_FLAGS(DT_NODELABEL(spi_dev2), cs_gpios);
+    spi_dev2_cs_control.gpio.pin = DT_GPIO_PIN_BY_IDX(DT_NODELABEL(spi_dev2), cs_gpios,0);
+	spi_dev2_cs_control.gpio.dt_flags = DT_GPIO_FLAGS_BY_IDX(DT_NODELABEL(spi_dev2), cs_gpios,0);
 	spi_dev2_cs_control.delay = DELAY_SPI_CS_ACTIVE_US;
 
 	spi_dev2_cfg.cs = &spi_dev2_cs_control;
@@ -150,7 +150,7 @@ int ICM_SPI_config() {
   return 0;
 }
 
-static int rate_idx = 15;
+static int rate_idx = 6;
 
 int ICM_setSamplingRate(int rate_idx) {
   uint8_t tx_buf[2] = {0};
@@ -202,7 +202,7 @@ int ICM_enableSensor() {
 // 0-5: IMU data
 // 6-7: sampling time
 // 8: sampling count
-short IMU_data[9] = {0};
+static short IMU_data[9] = {0};
 
 int ICM_readSensor() {
   uint8_t addr_buf[1] = {0};
@@ -236,6 +236,9 @@ int ICM_readSensor() {
     IMU_data[3] = (short)((rx_buf[7] << 8) | rx_buf[8]);
     IMU_data[4] = (short)((rx_buf[9] << 8) | rx_buf[10]);
     IMU_data[5] = (short)((rx_buf[11] << 8) | rx_buf[12]);
+
+    // printk("0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x, \n",
+    //   rx_buf[0], rx_buf[1],rx_buf[2],rx_buf[3],rx_buf[4],rx_buf[5],rx_buf[6],rx_buf[7],rx_buf[8],rx_buf[9],rx_buf[10],rx_buf[11],rx_buf[12]);
 
     return 0;
 }
@@ -328,18 +331,18 @@ int ICM_enableINT() {
 
 static struct spi_cs_control spi_dev1_cs_control;
 static struct spi_config spi_dev1_cfg={0};
-const struct device *spi_dev1=DEVICE_DT_GET(DT_NODELABEL(spi_dev1));
+// const struct device *spi_dev2=DEVICE_DT_GET(DT_NODELABEL(spi_dev2));
 
 int H_ICM_SPI_config() {
   spi_dev1_cfg.frequency = 8000000U; // only spi4 has 24000000
-    spi_dev1_cfg.operation = SPI_WORD_SET(8);
+    spi_dev1_cfg.operation = SPI_WORD_SET(8) | SPI_MODE_CPOL | SPI_MODE_CPHA | SPI_OP_MODE_MASTER;
 
-    spi_dev1_cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR(DT_NODELABEL(spi_dev1),cs_gpios));
+    spi_dev1_cs_control.gpio.port = DEVICE_DT_GET(DT_GPIO_CTLR_BY_IDX(DT_NODELABEL(spi_dev2),cs_gpios, 1));
     if (!spi_dev1_cs_control.gpio.port) {
         printk("cannot find CS GPIO device\n");
 	}
-    spi_dev1_cs_control.gpio.pin = DT_GPIO_PIN(DT_NODELABEL(spi_dev1), cs_gpios);
-	spi_dev1_cs_control.gpio.dt_flags = DT_GPIO_FLAGS(DT_NODELABEL(spi_dev1), cs_gpios);
+    spi_dev1_cs_control.gpio.pin = DT_GPIO_PIN_BY_IDX(DT_NODELABEL(spi_dev2), cs_gpios,1);
+	spi_dev1_cs_control.gpio.dt_flags = DT_GPIO_FLAGS_BY_IDX(DT_NODELABEL(spi_dev2), cs_gpios,1);
 	spi_dev1_cs_control.delay = DELAY_SPI_CS_ACTIVE_US;
 
 	spi_dev1_cfg.cs = &spi_dev1_cs_control;
@@ -361,13 +364,13 @@ int H_ICM_setSamplingRate(int rate_idx) {
     
     tx_buf[0] = ICM_SPI_WRITE | ICM_GYRO_CONFIG0;
     tx_buf[1] = rate_idx;
-    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev1_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
 
     tx_buf[0] = ICM_SPI_WRITE | ICM_ACCEL_CONFIG0;
     tx_buf[1] = rate_idx;
-    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev1_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
   return 0;
@@ -388,13 +391,13 @@ int H_ICM_enableSensor() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_PWR_MGMT0;
     // enable accel and gyro
     tx_buf[1] = 0b00001111;
-    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev1_cfg,&tx_set)) {
         printk("spi_write failed\n");
     }
   return 0;
 }
 
-short H_IMU_data[9] = {0};
+static short H_IMU_data[9] = {0};
 
 int H_ICM_readSensor() {
   uint8_t addr_buf[1] = {0};
@@ -418,7 +421,7 @@ int H_ICM_readSensor() {
 	};
 
     addr_buf[0] = ICM_SPI_READ | ICM_ACCEL_DATA_X1;
-    if (spi_transceive(spi_dev1,&spi_dev1_cfg,&addr_set,&rx_set)) {
+    if (spi_transceive(spi_dev2,&spi_dev1_cfg,&addr_set,&rx_set)) {
         printk("spi_transceive failed\n");
     }
 
@@ -457,7 +460,7 @@ int H_ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG;
     // 
     tx_buf[1] = 0b00000011;
-    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev1_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG failed\n");
     }
 
@@ -467,7 +470,7 @@ int H_ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_CONFIG1;
     // 
     tx_buf[1] = 0b01100000;
-    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev1_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG1 failed\n");
     }
 
@@ -476,7 +479,7 @@ int H_ICM_enableINT() {
     tx_buf[0] = ICM_SPI_WRITE | ICM_INT_SOURCE0;
     // 
     tx_buf[1] = 0b00001000;
-    if (spi_write(spi_dev1,&spi_dev1_cfg,&tx_set)) {
+    if (spi_write(spi_dev2,&spi_dev1_cfg,&tx_set)) {
         printk("ICM_INT_CONFIG0 failed\n");
     }
 
@@ -502,7 +505,7 @@ int H_ICM_enableINT() {
 	};
 
     addr_buf[0] = ICM_SPI_READ | ICM_INT_CONFIG1;
-    if (spi_transceive(spi_dev1,&spi_dev1_cfg,&addr_set,&rx_set)) {
+    if (spi_transceive(spi_dev2,&spi_dev1_cfg,&addr_set,&rx_set)) {
         printk("spi_transceive failed\n");
     }
 

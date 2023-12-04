@@ -4,10 +4,10 @@ if instance x (where 0<=x<=3) is used by one of the peripherals, none of the oth
 https://devzone.nordicsemi.com/f/nordic-q-a/62899/nrf9160---only-one-of-the-following-peripherals-can-be-enabled-spi1-uarte1-why
 */
 
-// ICM42688 
+// Two ICM42688 
 spi_dev2: &spi2 {
 	status = "okay";
-	cs-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>, <&gpio0 9 GPIO_ACTIVE_LOW>;
 	compatible = "nordic,nrf-spim";
 	pinctrl-0 = <&spi2_default>;
 	pinctrl-1 = <&spi2_sleep>;
@@ -16,17 +16,17 @@ spi_dev2: &spi2 {
 };
 
 
-// second ICM42688 with SPI
+// second ICM42688 with shared SPI
 // We should try to use all pins on gpio0 (or maybe all pins on gpio1); Define pins on both can lead to noisy and delayed IMU signals
-spi_dev1: &spi1 {
-	status = "okay";
-	cs-gpios = <&gpio0 23 GPIO_ACTIVE_LOW>;
-	compatible = "nordic,nrf-spim";
-	pinctrl-0 = <&spi1_default>;
-	pinctrl-1 = <&spi1_sleep>;
-	pinctrl-names = "default", "sleep";
-	// clock-frequency = <8000000>; 
-};
+// spi_dev1: &spi2 {
+// 	status = "okay";
+// 	cs-gpios = <&gpio0 23 GPIO_ACTIVE_LOW>;
+// 	compatible = "nordic,nrf-spim";
+// 	pinctrl-0 = <&spi1_default>;
+// 	pinctrl-1 = <&spi1_sleep>;
+// 	pinctrl-names = "default", "sleep";
+// 	// clock-frequency = <8000000>; 
+// };
 
 
 
@@ -40,22 +40,22 @@ i2s_rx_dev: &i2s0 {
 
 &pinctrl {
 
-	spi1_default: spi1_default{
-		group1 {
-			psels = <NRF_PSEL(SPIM_MOSI, 0, 28)>,
-				<NRF_PSEL(SPIM_SCK, 0, 24)>,
-				<NRF_PSEL(SPIM_MISO, 0, 29)>;
-		};
-	};
+	// spi1_default: spi1_default{
+	// 	group1 {
+	// 		psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+	// 			<NRF_PSEL(SPIM_SCK, 0, 6)>,
+	// 			<NRF_PSEL(SPIM_MISO, 0, 5)>;
+	// 	};
+	// };
 
-	spi1_sleep: spi1_sleep{
-		group1 {
-			psels = <NRF_PSEL(SPIM_MOSI, 0, 28)>,
-				<NRF_PSEL(SPIM_SCK, 0, 24)>,
-				<NRF_PSEL(SPIM_MISO, 0, 29)>;
-			low-power-enable;
-		};
-	};
+	// spi1_sleep: spi1_sleep{
+	// 	group1 {
+	// 		psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+	// 			<NRF_PSEL(SPIM_SCK, 0, 6)>,
+	// 			<NRF_PSEL(SPIM_MISO, 0, 5)>;
+	// 		low-power-enable;
+	// 	};
+	// };
 
 
 	spi2_default: spi2_default{

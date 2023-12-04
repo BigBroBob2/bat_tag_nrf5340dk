@@ -509,17 +509,39 @@ void main(void)
     
     define_files();
 
-    //////////////////////////////////////////////// SPI for second IMU
+    //////////////////////////////////////////////// SPI for 2 IMUs
 
-    // check ICM binding
-    if (!spi_dev1) {
-        printk("spi_dev1 Binding failed.");
+    // range scale
+    double ICM_GyroScale =  ICM_ADC2Float(ICM_GyroRangeVal_dps(ICM_GyroRange_idx));
+    double ICM_AccelScale = ICM_ADC2Float(ICM_AccelRangeVal_G(ICM_AccelRange_idx));
+    double ICM_Samplerate = ICM_SampRate(ICM_DataRate_idx);
+
+    // check SPI bus binding
+    if (!spi_dev2) {
+        printk("spi_dev2 Binding failed.");
         return;
     }
+    printk("Value of NRF_SPIM2->PSEL.SCK : %d \n",NRF_SPIM2->PSEL.SCK);
+    printk("Value of NRF_SPIM2->PSEL.MOSI : %d \n",NRF_SPIM2->PSEL.MOSI);
+    printk("Value of NRF_SPIM2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
 
-    printk("Value of NRF_SPIM1->PSEL.SCK : %d \n",NRF_SPIM1->PSEL.SCK);
-    printk("Value of NRF_SPIM1->PSEL.MOSI : %d \n",NRF_SPIM1->PSEL.MOSI);
-    printk("Value of NRF_SPIM1->PSEL.MISO : %d \n",NRF_SPIM1->PSEL.MISO);
+    ////////////////////////////////////////////  SPI devices IMU
+
+    /// config SPI first
+    ICM_SPI_config();
+    
+    // set ICM samping rate
+    ICM_setSamplingRate(rate_idx);
+
+    // enable interrupt
+    ICM_enableINT();
+
+    // enable sensor
+    ICM_enableSensor();
+
+    printk("Finished 1st IMU \n");
+
+    ///////////////////////////// Head IMU
 
     /// config SPI first
     H_ICM_SPI_config();
@@ -533,48 +555,21 @@ void main(void)
     // enable sensor
     H_ICM_enableSensor();
 
-    
-
-    
-
-    ////////////////////////////////////////////  SPI devices IMU
-
-    // range scale
-    double ICM_GyroScale =  ICM_ADC2Float(ICM_GyroRangeVal_dps(ICM_GyroRange_idx));
-    double ICM_AccelScale = ICM_ADC2Float(ICM_AccelRangeVal_G(ICM_AccelRange_idx));
-    double ICM_Samplerate = ICM_SampRate(ICM_DataRate_idx);
-
-    // check ICM binding
-    if (!spi_dev2) {
-        printk("spi_dev2 Binding failed.");
-        return;
-    }
-    printk("Value of NRF_SPIM2->PSEL.SCK : %d \n",NRF_SPIM2->PSEL.SCK);
-    printk("Value of NRF_SPIM2->PSEL.MOSI : %d \n",NRF_SPIM2->PSEL.MOSI);
-    printk("Value of NRF_SPIM2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
-    // printk("Value of NRF_SPIM2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
-
-    /// config SPI first
-    ICM_SPI_config();
-    
-    // set ICM samping rate
-    ICM_setSamplingRate(rate_idx);
-
-    // enable interrupt
-    ICM_enableINT();
-
-    // enable sensor
-    ICM_enableSensor();
+    printk("Finished 2nd Head IMU \n");
     
     // while(1) {
 
-    //     H_ICM_readSensor();
-    //     printk("%d, %d, %d, ", H_IMU_data[0],H_IMU_data[1],H_IMU_data[2]);
+    //     // H_ICM_readSensor();
+    //     // printk("%6d, %6d, %6d, ", H_IMU_data[0],H_IMU_data[1],H_IMU_data[2]);
+
+    //     // k_msleep(5);
+
+    //     printk("SPIM_CONFIG=%x, ", NRF_SPIM2->CONFIG);
 
     //     ICM_readSensor();
-    //     printk("%d, %d, %d \n", IMU_data[0],IMU_data[1],IMU_data[2]);
+    //     // printk("%6d, %6d, %6d \n", IMU_data[0],IMU_data[1],IMU_data[2]);
         
-    //     k_msleep(500);
+    //     k_msleep(5);
     // }
 
     // GPIO configure interrupt
@@ -690,7 +685,7 @@ void main(void)
 
     while (current_conn) 
     {   
-        printk("buf_length_imu=%d, buf_length_H_imu=%d\n",buf_length(&imu_circle_buf),buf_length(&H_imu_circle_buf));
+        // printk("buf_length_imu=%d, buf_length_H_imu=%d\n",buf_length(&imu_circle_buf),buf_length(&H_imu_circle_buf));
         k_msleep(1);
     }
     
