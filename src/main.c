@@ -12,6 +12,7 @@
 #endif
 
 #include "circular_buffer.h"
+#include "NanEyeC.h"
 
 #include <nrfx_log.h>
 #include <nrfx_gpiote.h>
@@ -61,16 +62,20 @@ static circular_buf H_imu_circle_buf = {
 // };
 /////////////////////////////////////////////////////////////////////////// finish define circular buf
 
-/// SD card data file
+//// SD card data file
+
+// save file for audio
 static struct fs_file_t mic_file;
+// static struct fs_file_t imu_t_file;
 
-static struct fs_file_t imu_t_file;
+// save file for camera frame
+static struct fs_file_t video_file;
 
+// save file for body imu
 static struct fs_file_t imu_file;
-// static struct fs_file_t imu_count_file;
 
+// save file for head imu
 static struct fs_file_t H_imu_file;
-// static struct fs_file_t H_imu_count_file;
 
 static int define_files() {
     int error;
@@ -104,18 +109,18 @@ static int define_files() {
 			return 0;
 		}
 
-    //////// imu_t_file for ICM time data
-    fs_file_t_init(&imu_t_file);
-    printk("Opening imu_t_file path\n");
+    //////// video_file for camera
+    fs_file_t_init(&video_file);
+    printk("Opening video_file path\n");
 
-	sprintf(&filename, "/SD:/imu_t_%02d.dat",trial_count); 
+	sprintf(&filename, "/SD:/video_%02d.dat",trial_count); 
 
-    // delete imu_t_file if exist
+    // delete video_file if exist
     fs_unlink(filename);
 
-	error = fs_open(&imu_t_file, filename, FS_O_CREATE | FS_O_WRITE);
+	error = fs_open(&video_file, filename, FS_O_CREATE | FS_O_WRITE);
     if (error) {
-			printk("Error opening imu_t_file [%03d]\n", error);
+			printk("Error opening video_file [%03d]\n", error);
 			return 0;
 		}
 
@@ -164,7 +169,7 @@ static uint16_t ICM_cw=0;
 
 struct k_thread ICM_thread_data;
 /*ICM processing thread*/
-#define ICM_THREAD_STACK_SIZE 2048
+#define ICM_THREAD_STACK_SIZE 512
 /* ICM thread is a priority cooperative thread, less than PDM mic*/
 #define ICM_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(ICM_thread_stack_area, ICM_THREAD_STACK_SIZE);
@@ -202,7 +207,7 @@ static uint16_t H_ICM_cw=0;
 
 struct k_thread H_ICM_thread_data;
 /*ICM processing thread*/
-#define H_ICM_THREAD_STACK_SIZE 2048
+#define H_ICM_THREAD_STACK_SIZE 512
 /* ICM thread is a priority cooperative thread, less than PDM mic*/
 #define H_ICM_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(H_ICM_thread_stack_area, H_ICM_THREAD_STACK_SIZE);
@@ -330,12 +335,9 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             }
             processing_buffers_1 = !processing_buffers_1;   
 
-            
-
-
-            // can use this as timestamp of next audio buffer start
+            // can use this as timestamp of next audio buffer start time
             mic_t[0] = k_cycle_get_32();
-            fs_write(&imu_t_file,&mic_t,sizeof(mic_t));
+            fs_write(&mic_file,&mic_t,sizeof(mic_t));
 
             // we record IMU and change ICM_count with circular buffer during IMU data writing
             
@@ -494,7 +496,13 @@ void main(void)
 		return 0;
 	}
 
-    
+
+    //////////////// Init NanEyeC camera
+    NRF_P0->PIN_CNF[SCLK_pin] = 0;
+	NRF_P0->PIN_CNF[SDAT_pin] = 0;
+    InitSPI();
+	NanEye_InitialConfig();
+    ReSYNC();	
 
     
     ///////////////////////////////////////// Here starts multiple trial loop
@@ -688,15 +696,19 @@ void main(void)
     NVIC_EnableIRQ(GPIOTE0_IRQn);
     irq_enable(GPIOTE0_IRQn);
 
-    while (current_conn) 
-    {   
-        printk("buf_length_imu=%d, buf_length_H_imu=%d\n",buf_length(&imu_circle_buf),buf_length(&H_imu_circle_buf));
-        k_msleep(1);
-    }
+    // while (current_conn) 
+    // {   
+    //     printk("buf_length_imu=%d, buf_length_H_imu=%d\n",buf_length(&imu_circle_buf),buf_length(&H_imu_circle_buf));
+    //     k_msleep(1);
+    // }
     
     ///////////////////////////////////////// loop
+    ReSYNC();
     while (current_conn){
-        k_msleep(1000);
+		NanEye_ReadFrame();		
+		Thresholding_ImageBuf();
+		fs_write(&video_file, &Image_binary,160*20);
+        // k_msleep(1000);
     }
     
     ///////////////////// after loop
@@ -727,7 +739,7 @@ void main(void)
 	fs_close(&mic_file);
     fs_close(&imu_file);
     fs_close(&H_imu_file);
-    fs_close(&imu_t_file);
+    fs_close(&video_file);
     // fs_close(&imu_count_file);
 
     k_msleep(1000);
