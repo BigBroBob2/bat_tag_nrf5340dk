@@ -158,6 +158,27 @@ static int define_files() {
     // return 0;
 }
 
+//////////////////////////////////////////////////////////////////////////////// camera thread
+// SPI camera thread
+struct k_thread camera_thread_data;
+/*ICM processing thread*/
+#define camera_THREAD_STACK_SIZE 512
+/* ICM thread is a priority cooperative thread, less than PDM mic*/
+#define camera_THREAD_PRIORITY -16
+K_THREAD_STACK_DEFINE(camera_thread_stack_area, camera_THREAD_STACK_SIZE);
+K_SEM_DEFINE(camera_thread_semaphore, 0, 1);
+
+static void camera_thread_entry_point(void *p1, void *p2, void *p3) {
+    while (true) {
+        if (k_sem_take(&camera_thread_semaphore, K_FOREVER) == 0) {
+
+            NanEye_ReadFrame();		
+		    // Thresholding_ImageBuf();
+		    // fs_write(&video_file, &Image_binary,160*20);
+    }
+}
+}
+
 //////////////////////////////////////////////////////////////////////////////// ICM thread
 // SPI ICM thread
 static short imu_rbuf[9]; // small read buf to get direct data each time IRQ
@@ -325,7 +346,12 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             
             ///////////////// somehow mic_data and IMU_data fs_write together can work
+            // NRF_P0->PIN_CNF[26] = 1;
+            // NRF_P0->OUTSET |= 1 << 26;
+
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
+
+            // NRF_P0->OUTCLR |= 1 << 26;
 
             /* Swap buffers */
             nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
@@ -336,13 +362,12 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             processing_buffers_1 = !processing_buffers_1;   
 
             // can use this as timestamp of next audio buffer start time
-            mic_t[0] = k_cycle_get_32();
-            fs_write(&mic_file,&mic_t,sizeof(mic_t));
+            // mic_t[0] = k_cycle_get_32();
+            // fs_write(&mic_file,&mic_t,sizeof(mic_t));
 
             // we record IMU and change ICM_count with circular buffer during IMU data writing
             
-            // NRF_P0->PIN_CNF[26] = 1;
-            // NRF_P0->OUTSET |= 1 << 26;
+            
 
             // NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
             // NVIC_DisableIRQ(GPIOTE0_IRQn);
@@ -365,7 +390,7 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // irq_enable(GPIOTE0_IRQn);
             // NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
 
-            // NRF_P0->OUTCLR |= 1 << 26;
+            
         
 
             
@@ -518,6 +543,10 @@ void main(void)
     define_files();
 
     //////////////////////////////////////////////// SPI for second IMU
+    // range scale
+    double ICM_GyroScale =  ICM_ADC2Float(ICM_GyroRangeVal_dps(ICM_GyroRange_idx));
+    double ICM_AccelScale = ICM_ADC2Float(ICM_AccelRangeVal_G(ICM_AccelRange_idx));
+    double ICM_Samplerate = ICM_SampRate(ICM_DataRate_idx);
 
     // check ICM binding
     if (!spi_dev1) {
@@ -547,10 +576,7 @@ void main(void)
 
     ////////////////////////////////////////////  SPI devices IMU
 
-    // range scale
-    double ICM_GyroScale =  ICM_ADC2Float(ICM_GyroRangeVal_dps(ICM_GyroRange_idx));
-    double ICM_AccelScale = ICM_ADC2Float(ICM_AccelRangeVal_G(ICM_AccelRange_idx));
-    double ICM_Samplerate = ICM_SampRate(ICM_DataRate_idx);
+    
 
     // check ICM binding
     if (!spi_dev2) {
@@ -562,6 +588,7 @@ void main(void)
     printk("Value of NRF_SPIM2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
     // printk("Value of NRF_SPIM2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
 
+    
     /// config SPI first
     ICM_SPI_config();
     
@@ -573,6 +600,8 @@ void main(void)
 
     // enable sensor
     ICM_enableSensor();
+
+    
     
     // while(1) {
 
@@ -696,19 +725,34 @@ void main(void)
     NVIC_EnableIRQ(GPIOTE0_IRQn);
     irq_enable(GPIOTE0_IRQn);
 
+
+
+    // start camera
+    k_tid_t camera_thread_tid = k_thread_create(
+        &camera_thread_data,
+        camera_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(camera_thread_stack_area),
+        camera_thread_entry_point,
+        NULL, NULL, NULL,
+        camera_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+    
+    ///////////////////////////////////////// loop
     // while (current_conn) 
     // {   
     //     printk("buf_length_imu=%d, buf_length_H_imu=%d\n",buf_length(&imu_circle_buf),buf_length(&H_imu_circle_buf));
     //     k_msleep(1);
     // }
-    
-    ///////////////////////////////////////// loop
-    ReSYNC();
+
+    // ReSYNC();
     while (current_conn){
-		NanEye_ReadFrame();		
-		Thresholding_ImageBuf();
-		fs_write(&video_file, &Image_binary,160*20);
-        // k_msleep(1000);
+        
+		// NanEye_ReadFrame();		
+		// Thresholding_ImageBuf();
+		// fs_write(&video_file, &Image_binary,160*20);
+        
+        k_sem_give(&camera_thread_semaphore);
+        k_msleep(500);
     }
     
     ///////////////////// after loop
@@ -716,7 +760,7 @@ void main(void)
     nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
                                   NRF_I2S_INT_TXPTRUPD_MASK);
     // nrfx_i2s_stop();
-
+    k_thread_abort(camera_thread_tid);
     k_thread_abort(ICM_thread_tid);
     k_thread_abort(H_ICM_thread_tid);
 

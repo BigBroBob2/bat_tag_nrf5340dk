@@ -21,7 +21,7 @@ spi_dev4: &spi4 {
 // ICM42688 
 spi_dev2: &spi2 {
 	status = "okay";
-	cs-gpios = <&gpio0 16 GPIO_ACTIVE_LOW>;
+	cs-gpios = <&gpio0 26 GPIO_ACTIVE_LOW>;
 	compatible = "nordic,nrf-spim";
 	pinctrl-0 = <&spi2_default>;
 	pinctrl-1 = <&spi2_sleep>;
@@ -76,7 +76,7 @@ i2s_rx_dev: &i2s0 {
 		group1 {
 			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
 				<NRF_PSEL(SPIM_SCK, 0, 6)>,
-				<NRF_PSEL(SPIM_MISO, 0, 8)>;
+				<NRF_PSEL(SPIM_MISO, 0, 5)>;
 		};
 	};
 
@@ -84,7 +84,7 @@ i2s_rx_dev: &i2s0 {
 		group1 {
 			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
 				<NRF_PSEL(SPIM_SCK, 0, 6)>,
-				<NRF_PSEL(SPIM_MISO, 0, 8)>;
+				<NRF_PSEL(SPIM_MISO, 0, 5)>;
 			low-power-enable;
 		};
 	};
@@ -113,7 +113,7 @@ i2s_rx_dev: &i2s0 {
 	spi4_default: spi4_default{
 		group1 {
 			psels = <NRF_PSEL(SPIM_MOSI, 0, 9)>,
-				<NRF_PSEL(SPIM_SCK, 0, 10)>,
+				<NRF_PSEL(SPIM_SCK, 0, 8)>,
 				<NRF_PSEL(SPIM_MISO, 0, 9)>;
 		};
 	};
@@ -121,7 +121,7 @@ i2s_rx_dev: &i2s0 {
 	spi4_sleep: spi4_sleep{
 		group1 {
 			psels = <NRF_PSEL(SPIM_MOSI, 0, 9)>,
-				<NRF_PSEL(SPIM_SCK, 0, 10)>,
+				<NRF_PSEL(SPIM_SCK, 0, 8)>,
 				<NRF_PSEL(SPIM_MISO, 0, 9)>;
 			low-power-enable;
 		};

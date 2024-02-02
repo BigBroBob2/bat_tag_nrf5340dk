@@ -35,7 +35,7 @@
 //
 // We use the second COM port for sending raw, binary image data.
 //
-const int SCLK_pin = 10; // Port 0, Pin
+const int SCLK_pin = 8; // Port 0, Pin
 const int SDAT_pin = 9;
 
 // SPI CS pin very helpful for debugging with scope, although the camera itself
@@ -89,9 +89,9 @@ void InitSPI()
 	// NRF_SPIM4->FREQUENCY = 0x10000000;   // For initial testing, just use 1Mbps
 	// NRF_SPIM4->FREQUENCY = 0x40000000;   // 4Mbps
 	// NRF_SPIM4->FREQUENCY = 0x80000000;   // 8Mbps
-	NRF_SPIM4->FREQUENCY = 0x0A000000;   // 16Mbps only on SPIM4, apparently.
+	// NRF_SPIM4->FREQUENCY = 0x0A000000;   // 16Mbps only on SPIM4, apparently.
 	// CAREFUL, data can be a bit unreliable at this highest speed.
-	// NRF_SPIM4->FREQUENCY = 0x14000000;   // 32Mbps only on SPIM4, apparently.
+	NRF_SPIM4->FREQUENCY = 0x14000000;   // 32Mbps only on SPIM4, apparently.
 
 	NRF_SPIM4->PSEL.SCK =  SCLK_pin;   // Clock is P0.13
 	NRF_SPIM4->PSEL.MOSI =  SDAT_pin;  // MOSI and MISO both use same pin (ItsyBitsy MOSI)
@@ -500,7 +500,7 @@ void NanEye_ReadFrame_OLD()
 // immediately after ReSYNC().
 void NanEye_ReadFrame()
 {
-	int key = irq_lock();
+	// int key = irq_lock();
 
 	// NRF_P0->OUTSET = 1 << SCOPE_TRIG;
 	// NRF_P0->OUTSET = 1 << SCOPE_TRIG;
@@ -518,7 +518,7 @@ void NanEye_ReadFrame()
 	// NRF_P0->OUTCLR = 1 << SCOPE_TRIG;
 	// NRF_P0->OUTCLR = 1 << SCOPE_TRIG;
 
-	irq_unlock(key);
+	// irq_unlock(key);
 
 	spi_ReadBytes(12); // End of frame, should be all zeros - read and discard.
 
