@@ -162,14 +162,16 @@ static int define_files() {
 }
 
 //////////////////////////////////////////////////////////////////////////////// camera thread
+// bufer for write into video files
+static uint8_t camera_buf[frame_block_size*frame_block_circular_buf_num];
 
-static char camera_buf[frame_block_size*frame_block_circular_buf_num];
+static uint8_t camera_cbuf[frame_block_size*frame_block_circular_buf_num];
 static uint16_t camera_count;
 
 // static char camera_cbuf[frame_block_circular_buf_size]; 
 // IMU sample data circular buffer
 static frame_block_circular_buf camera_circle_buf = {
-    .buf = &ImageBuf[0][0],
+    .buf = &camera_cbuf,
     .write_idx = 0,
     .read_idx = 0
 };
@@ -190,11 +192,20 @@ static void camera_thread_entry_point(void *p1, void *p2, void *p3) {
             NRF_P0->PIN_CNF[11] = 1;
             NRF_P0->OUTSET |= 1 << 11;
 
-            NanEye_ReadFrame();
+            // NanEye_ReadFrame();
+            int key = irq_lock();
 
-            Thresholding_ImageBuf();
+            spi_ReadBuffer_sleep(&Image_binary[0], 492*16, 200);
+            for(int i=0; i < 4; ++i) {
+                spi_ReadBuffer_sleep(&ImageBuf[i*76+16][0], 492*76, 200);
+            }
+            irq_unlock(key);
+            spi_ReadBytes(12); // End of frame, should be all zeros - read and discard.
+            NanEye_WriteConfig();
+            spi_WriteBuffer(camera_rwbuf, 966);
+            spi_ReadBuffer(camera_rwbuf, 4*492);
 
-            frame_block_write_in_buf(&camera_circle_buf,&Image_binary[0][0]);
+            frame_block_write_in_buf(&camera_circle_buf,&Image_binary[0]);
 
             NRF_P0->OUTCLR |= 1 << 11;
     }
@@ -208,7 +219,7 @@ static short imu_buf[N_circular_buf]; // IMU buffer
 static short imu_cw_buf[N_circular_buf]; // IMU count write buffer
 static int32_t imu_t; // timestamp for each IMU writing 
 static uint16_t ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
-static uint16_t ICM_cw=0;
+// static uint16_t ICM_cw=0;
 
 struct k_thread ICM_thread_data;
 /*ICM processing thread*/
@@ -232,10 +243,10 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             IMU_data[7] = imu_t & 0x0000FFFF;
             IMU_data[8]++; 
 
-            memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data)); 
+            // memcpy(imu_rbuf,&IMU_data[0],sizeof(IMU_data)); 
 
             // write data into circular buf
-            write_in_buf(&imu_circle_buf,imu_rbuf,9);
+            write_in_buf(&imu_circle_buf,IMU_data,9);
 
             NRF_P0->OUTCLR |= 1 << 12;
     }
@@ -244,11 +255,11 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
 
 // 2nd SPI ICM thread
 static short H_imu_rbuf[9]; // small read buf to get direct data each time IRQ
-static short H_imu_buf[N_circular_buf]; // IMU buffer
+// static short H_imu_buf[N_circular_buf]; // IMU buffer
 static short H_imu_cw_buf[N_circular_buf]; // IMU count write buffer
 static int32_t H_imu_t; // timestamp for each IMU writing 
 static uint16_t H_ICM_count = 0; // sample count within the buffer, be really careful with uint8_t and int8_t
-static uint16_t H_ICM_cw=0;
+// static uint16_t H_ICM_cw=0;
 
 struct k_thread H_ICM_thread_data;
 /*ICM processing thread*/
@@ -270,10 +281,10 @@ static void H_ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             H_IMU_data[7] = H_imu_t & 0x0000FFFF;
             H_IMU_data[8]++;
 
-            memcpy(H_imu_rbuf,&H_IMU_data[0],sizeof(H_IMU_data)); 
+            // memcpy(H_imu_rbuf,&H_IMU_data[0],sizeof(H_IMU_data)); 
 
             // write data into circular buf
-            write_in_buf(&H_imu_circle_buf,H_imu_rbuf,9);
+            write_in_buf(&H_imu_circle_buf,H_IMU_data,9);
 
     }
 }
@@ -312,6 +323,7 @@ atomic_t processing_in_progress = ATOMIC_INIT(0x00);
 atomic_t dropout_occurred = ATOMIC_INIT(0x00);
 
 static uint32_t mic_t[1];
+static int32_t *rx;
 
 
 #define BYTES_PER_SAMPLE 4
@@ -340,6 +352,8 @@ K_THREAD_STACK_DEFINE(processing_thread_stack_area, PROCESSING_THREAD_STACK_SIZE
 K_SEM_DEFINE(processing_thread_semaphore, 0, 1);
 struct k_thread processing_thread_data;
 
+K_SEM_DEFINE(SDcard_thread_semaphore, 0, 1);
+
 static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         
@@ -363,15 +377,11 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             }
 
             nrfx_i2s_buffers_t* buffers_to_process = processing_buffers_1 ? &nrfx_i2s_buffers_1 : &nrfx_i2s_buffers_2;
-            int32_t *rx = (int32_t *)buffers_to_process->p_rx_buffer;
+            rx = (int32_t *)buffers_to_process->p_rx_buffer;
 
             
             ///////////////// somehow mic_data and IMU_data fs_write together can work
             
-
-            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
-            
-
             /* Swap buffers */
             nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
             if (result != NRFX_SUCCESS) {
@@ -392,13 +402,7 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // irq_disable(GPIOTE0_IRQn);
             // NRF_GPIOTE->INTENCLR |= 0x00000080;
                 //read out circualr buf
-                read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
-                read_out_buf(&H_imu_circle_buf,H_imu_buf,&H_ICM_count);
-
-                printk("H_ICM_count=%d\n", H_ICM_count);
-
-                fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
-                fs_write(&H_imu_file, &H_imu_buf,H_ICM_count*sizeof(short));
+                
 
             // NRF_GPIOTE->INTENSET |= 0x00000080;
             // NVIC_EnableIRQ(GPIOTE0_IRQn);
@@ -406,10 +410,8 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
 
  
- 
-            frame_block_read_out_buf(&camera_circle_buf,camera_buf, &camera_count);
-            // printk("camera_count=%d\n",camera_count);
-		    fs_write(&video_file, &camera_buf,camera_count*frame_block_size);
+            k_sem_give(&SDcard_thread_semaphore);
+            
         
             NRF_P0->OUTCLR |= 1 << 31;
             
@@ -504,7 +506,31 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
 	return true;
 }
 
+//////////////////////////////////////////////////////////////////////////////// thread for writing into SD card
 
+struct k_thread SDcard_thread_data;
+#define SDcard_THREAD_STACK_SIZE 1024
+#define SDcard_THREAD_PRIORITY -14
+K_THREAD_STACK_DEFINE(SDcard_thread_stack_area, SDcard_THREAD_STACK_SIZE);
+
+
+static void SDcard_thread_entry_point(void *p1, void *p2, void *p3) {
+    while (true) {
+        if (k_sem_take(&SDcard_thread_semaphore, K_FOREVER) == 0) {
+            // audio
+            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
+            // IMU 
+            read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
+            fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
+            read_out_buf(&H_imu_circle_buf,imu_buf,&H_ICM_count);
+            fs_write(&H_imu_file, &imu_buf,H_ICM_count*sizeof(short));
+            // camera
+            frame_block_read_out_buf(&camera_circle_buf,camera_buf, &camera_count);
+            // printk("camera_count=%d\n",camera_count);
+		    fs_write(&video_file, &camera_buf,camera_count*frame_block_size);
+    }
+}
+}
 
 void main(void)
 {   
@@ -551,6 +577,15 @@ void main(void)
     ReSYNC();	
 
     
+    k_tid_t SDcard_thread_tid = k_thread_create(
+        &SDcard_thread_data,
+        SDcard_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(SDcard_thread_stack_area),
+        SDcard_thread_entry_point,
+        NULL, NULL, NULL,
+        SDcard_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+
     ///////////////////////////////////////// Here starts multiple trial loop
     while (true) {
     // wait for bluetooth command
@@ -679,6 +714,9 @@ void main(void)
 
 
     ///////////////////////////////////////////////////////////////// START SAMPLE
+     // thread for SD card
+    
+
     // try to use thread to read ICM data
     k_tid_t ICM_thread_tid = k_thread_create(
         &ICM_thread_data,
@@ -780,6 +818,7 @@ void main(void)
     k_thread_abort(camera_thread_tid);
     k_thread_abort(ICM_thread_tid);
     k_thread_abort(H_ICM_thread_tid);
+    
 
     NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
     NVIC_DisableIRQ(GPIOTE0_IRQn);
