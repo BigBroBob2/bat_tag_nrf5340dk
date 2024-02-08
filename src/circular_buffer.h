@@ -5,7 +5,7 @@
 #include <zephyr/device.h>
 #include <zephyr/kernel.h>
 
-#define N_circular_buf 4096
+#define N_circular_buf 2048
 
 typedef struct {
     short *buf; // actuall capacity = N-1

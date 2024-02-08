@@ -51,9 +51,6 @@
 const int ICM_AccelRange_idx = 3;   //choose 0=32G, 1=16g, 2=8g, 3=4g, 4=2g
 const int  ICM_GyroRange_idx = 1;   //choose 0=2000dps, 1=1000dps, 2=500dps, 3=250dps, 4=125dps
 
-// Usual DataRate
-const int ICM_DataRate_idx = 15;
-
 // Return the gyro full-scale range, in Degrees per Second,
 // for each of the range selection settings.
 double ICM_GyroRangeVal_dps(int range_idx)

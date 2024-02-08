@@ -21,6 +21,9 @@
 static int trial_count = 0;
 
 /////////////////////////////////////////////////////////////////////////// Define circular buffer
+
+
+
 // IMU circular buffer
 static short imu_cbuf[N_circular_buf]; 
 // IMU sample data circular buffer
@@ -159,6 +162,18 @@ static int define_files() {
 }
 
 //////////////////////////////////////////////////////////////////////////////// camera thread
+
+static char camera_buf[frame_block_size*frame_block_circular_buf_num];
+static uint16_t camera_count;
+
+// static char camera_cbuf[frame_block_circular_buf_size]; 
+// IMU sample data circular buffer
+static frame_block_circular_buf camera_circle_buf = {
+    .buf = &ImageBuf[0][0],
+    .write_idx = 0,
+    .read_idx = 0
+};
+
 // SPI camera thread
 struct k_thread camera_thread_data;
 /*ICM processing thread*/
@@ -171,10 +186,17 @@ K_SEM_DEFINE(camera_thread_semaphore, 0, 1);
 static void camera_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&camera_thread_semaphore, K_FOREVER) == 0) {
+            
+            NRF_P0->PIN_CNF[11] = 1;
+            NRF_P0->OUTSET |= 1 << 11;
 
-            NanEye_ReadFrame();		
-		    // Thresholding_ImageBuf();
-		    // fs_write(&video_file, &Image_binary,160*20);
+            NanEye_ReadFrame();
+
+            Thresholding_ImageBuf();
+
+            frame_block_write_in_buf(&camera_circle_buf,&Image_binary[0][0]);
+
+            NRF_P0->OUTCLR |= 1 << 11;
     }
 }
 }
@@ -190,7 +212,7 @@ static uint16_t ICM_cw=0;
 
 struct k_thread ICM_thread_data;
 /*ICM processing thread*/
-#define ICM_THREAD_STACK_SIZE 512
+#define ICM_THREAD_STACK_SIZE 1024
 /* ICM thread is a priority cooperative thread, less than PDM mic*/
 #define ICM_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(ICM_thread_stack_area, ICM_THREAD_STACK_SIZE);
@@ -199,6 +221,9 @@ K_SEM_DEFINE(ICM_thread_semaphore, 0, 1);
 static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
+
+            NRF_P0->PIN_CNF[12] = 1;
+            NRF_P0->OUTSET |= 1 << 12;
 
             ICM_readSensor();
              
@@ -212,8 +237,7 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             // write data into circular buf
             write_in_buf(&imu_circle_buf,imu_rbuf,9);
 
-            // imu_count_idx[0]++;
-            // write_in_buf(&count_circle_buf, imu_count_idx,1);
+            NRF_P0->OUTCLR |= 1 << 12;
     }
 }
 }
@@ -228,7 +252,7 @@ static uint16_t H_ICM_cw=0;
 
 struct k_thread H_ICM_thread_data;
 /*ICM processing thread*/
-#define H_ICM_THREAD_STACK_SIZE 512
+#define H_ICM_THREAD_STACK_SIZE 1024
 /* ICM thread is a priority cooperative thread, less than PDM mic*/
 #define H_ICM_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(H_ICM_thread_stack_area, H_ICM_THREAD_STACK_SIZE);
@@ -238,8 +262,6 @@ static void H_ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&H_ICM_thread_semaphore, K_FOREVER) == 0) {
             
-            // NRF_P0->PIN_CNF[31] = 1;
-            // NRF_P0->OUT |= 1 << 31;
 
             H_ICM_readSensor();
 
@@ -253,10 +275,6 @@ static void H_ICM_thread_entry_point(void *p1, void *p2, void *p3) {
             // write data into circular buf
             write_in_buf(&H_imu_circle_buf,H_imu_rbuf,9);
 
-            // H_imu_count_idx[0]++;
-            // write_in_buf(&H_count_circle_buf, H_imu_count_idx,1);
-
-            // NRF_P0->OUTCLR |= 1 << 31;
     }
 }
 }
@@ -297,7 +315,7 @@ static uint32_t mic_t[1];
 
 
 #define BYTES_PER_SAMPLE 4
-#define AUDIO_BUFFER_N_SAMPLES 8192
+#define AUDIO_BUFFER_N_SAMPLES 4096
 #define AUDIO_BUFFER_BYTE_SIZE (BYTES_PER_SAMPLE * AUDIO_BUFFER_N_SAMPLES)
 #define AUDIO_BUFFER_WORD_SIZE (AUDIO_BUFFER_BYTE_SIZE / 4)
 
@@ -328,6 +346,9 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
         if (k_sem_take(&processing_thread_semaphore, K_USEC(1)) == 0) {
 
+            
+            NRF_P0->PIN_CNF[31] = 1;
+            NRF_P0->OUTSET |= 1 << 31;
 
             if (atomic_test_bit(&dropout_occurred, 0)) {
                 printk("dropout_occurred\n");
@@ -346,12 +367,10 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             
             ///////////////// somehow mic_data and IMU_data fs_write together can work
-            // NRF_P0->PIN_CNF[26] = 1;
-            // NRF_P0->OUTSET |= 1 << 26;
+            
 
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
-
-            // NRF_P0->OUTCLR |= 1 << 26;
+            
 
             /* Swap buffers */
             nrfx_err_t result = nrfx_i2s_next_buffers_set(buffers_to_process);
@@ -367,7 +386,6 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
 
             // we record IMU and change ICM_count with circular buffer during IMU data writing
             
-            
 
             // NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
             // NVIC_DisableIRQ(GPIOTE0_IRQn);
@@ -375,13 +393,10 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // NRF_GPIOTE->INTENCLR |= 0x00000080;
                 //read out circualr buf
                 read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
-                // read_out_buf(&count_circle_buf, imu_cw_buf, &ICM_cw);
-
                 read_out_buf(&H_imu_circle_buf,H_imu_buf,&H_ICM_count);
-                // read_out_buf(&H_count_circle_buf, H_imu_cw_buf, &H_ICM_cw);
 
-                // fs_write(&imu_count_file, &imu_cw_buf,ICM_cw*sizeof(short));
-                // fs_write(&H_imu_count_file, &H_imu_cw_buf,H_ICM_cw*sizeof(short));
+                printk("H_ICM_count=%d\n", H_ICM_count);
+
                 fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
                 fs_write(&H_imu_file, &H_imu_buf,H_ICM_count*sizeof(short));
 
@@ -390,11 +405,15 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
             // irq_enable(GPIOTE0_IRQn);
             // NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
 
-            
+ 
+ 
+            frame_block_read_out_buf(&camera_circle_buf,camera_buf, &camera_count);
+            // printk("camera_count=%d\n",camera_count);
+		    fs_write(&video_file, &camera_buf,camera_count*frame_block_size);
         
-
+            NRF_P0->OUTCLR |= 1 << 31;
             
-
+            
             
             
             /* Done audio processing */
@@ -459,7 +478,7 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
         .lrck_pin = I2S_LRCK,
         .mck_pin = I2S_MCK,
         .sdin_pin = I2S_SDIN,
-        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32,
+        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV63,
         .ratio = I2S_CONFIG_RATIO_RATIO_32X,
         .irq_priority = NRFX_I2S_DEFAULT_CONFIG_IRQ_PRIORITY,
         .mode = NRF_I2S_MODE_MASTER,
@@ -484,6 +503,8 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
 
 	return true;
 }
+
+
 
 void main(void)
 {   
@@ -543,10 +564,6 @@ void main(void)
     define_files();
 
     //////////////////////////////////////////////// SPI for second IMU
-    // range scale
-    double ICM_GyroScale =  ICM_ADC2Float(ICM_GyroRangeVal_dps(ICM_GyroRange_idx));
-    double ICM_AccelScale = ICM_ADC2Float(ICM_AccelRangeVal_G(ICM_AccelRange_idx));
-    double ICM_Samplerate = ICM_SampRate(ICM_DataRate_idx);
 
     // check ICM binding
     if (!spi_dev1) {
@@ -752,7 +769,7 @@ void main(void)
 		// fs_write(&video_file, &Image_binary,160*20);
         
         k_sem_give(&camera_thread_semaphore);
-        k_msleep(500);
+        k_msleep(50);
     }
     
     ///////////////////// after loop

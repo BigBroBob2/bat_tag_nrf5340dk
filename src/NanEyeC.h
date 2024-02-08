@@ -500,7 +500,7 @@ void NanEye_ReadFrame_OLD()
 // immediately after ReSYNC().
 void NanEye_ReadFrame()
 {
-	// int key = irq_lock();
+	int key = irq_lock();
 
 	// NRF_P0->OUTSET = 1 << SCOPE_TRIG;
 	// NRF_P0->OUTSET = 1 << SCOPE_TRIG;
@@ -518,7 +518,7 @@ void NanEye_ReadFrame()
 	// NRF_P0->OUTCLR = 1 << SCOPE_TRIG;
 	// NRF_P0->OUTCLR = 1 << SCOPE_TRIG;
 
-	// irq_unlock(key);
+	irq_unlock(key);
 
 	spi_ReadBytes(12); // End of frame, should be all zeros - read and discard.
 
@@ -779,7 +779,7 @@ uint16_t Image_threshold = 30;
 
 ////////////////////////////////////////////////
 // Unfortunately we don't have enough RAM
-// Consider upsample
+// Consider downsample
 
 // struct Bool_Byte Image_binary[320][41];
 // void Thresholding_ImageBuf() {
@@ -817,42 +817,114 @@ uint16_t Image_threshold = 30;
 // 	}
 // }
 
-struct Bool_Byte Image_binary[160][20];
+uint8_t Image_binary[160][20];
 void Thresholding_ImageBuf() {
 	for(int r=0; r<320; r+=2) {
 		// Compare 8 pixels (across 12 bytes) to threshold (8*1 bit) and save in 1 Bool_Byte (1 byte).
 		for(int b=0; b<20; ++b) {
-			p0 = (uint16_t)(ImageBuf[r][24*b] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+1] >> 5u;
-			Image_binary[r][b].x0 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+1] >> 5u;
+			// Image_binary[r][b] = (p0 >= Image_threshold) << 7;
+			Image_binary[r][b] = ((uint16_t)(ImageBuf[r][24*b] & 0x7f) >= (Image_threshold >> 3u));
 
-			p0 = (uint16_t)(ImageBuf[r][24*b+3] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+4] >> 5u;
-			Image_binary[r][b].x1 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b+3] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+4] >> 5u;
+			// Image_binary[r][b] |= (p0 >= Image_threshold) << 6;
+			Image_binary[r][b] |= ((uint16_t)(ImageBuf[r][24*b+3] & 0x7f) >= (Image_threshold >> 3u)) << 1;
 
-			p0 = (uint16_t)(ImageBuf[r][24*b+6] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+7] >> 5u;
-			Image_binary[r][b].x2 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b+6] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+7] >> 5u;
+			// Image_binary[r][b] |= (p0 >= Image_threshold) << 5;
+			Image_binary[r][b] |= ((uint16_t)(ImageBuf[r][24*b+6] & 0x7f) >= (Image_threshold >> 3u)) << 2;
 
-			p0 = (uint16_t)(ImageBuf[r][24*b+9] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+10] >> 5u;
-			Image_binary[r][b].x3 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b+9] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+10] >> 5u;
+			// Image_binary[r][b] |= (p0 >= Image_threshold) << 4;
+			Image_binary[r][b] |= ((uint16_t)(ImageBuf[r][24*b+9] & 0x7f) >= (Image_threshold >> 3u)) << 3;
 
-			p0 = (uint16_t)(ImageBuf[r][24*b+12] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+13] >> 5u;
-			Image_binary[r][b].x4 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b+12] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+13] >> 5u;
+			// Image_binary[r][b] |= (p0 >= Image_threshold) << 3;
+			Image_binary[r][b] |= ((uint16_t)(ImageBuf[r][24*b+12] & 0x7f) >= (Image_threshold >> 3u)) << 4;
 
-			p0 = (uint16_t)(ImageBuf[r][24*b+15] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+16] >> 5u;
-			Image_binary[r][b].x5 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b+15] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+16] >> 5u;
+			// Image_binary[r][b] |= (p0 >= Image_threshold) << 2;
+			Image_binary[r][b] |= ((uint16_t)(ImageBuf[r][24*b+15] & 0x7f) >= (Image_threshold >> 3u)) << 5;
 
-			p0 = (uint16_t)(ImageBuf[r][24*b+18] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+19] >> 5u;
-			Image_binary[r][b].x6 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b+18] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+19] >> 5u;
+			// Image_binary[r][b] |= (p0 >= Image_threshold) << 1;
+			Image_binary[r][b] |= ((uint16_t)(ImageBuf[r][24*b+18] & 0x7f) >= (Image_threshold >> 3u)) << 6;
 
-			p0 = (uint16_t)(ImageBuf[r][24*b+21] & 0x7f) << 3u;
-			p0 |= (uint16_t)ImageBuf[r][24*b+22] >> 5u;
-			Image_binary[r][b].x7 = p0 >= Image_threshold;
+			// p0 = (uint16_t)(ImageBuf[r][24*b+21] & 0x7f) << 3u;
+			// p0 |= (uint16_t)ImageBuf[r][24*b+22] >> 5u;
+			// Image_binary[r][b] |= (p0 >= Image_threshold);
+			Image_binary[r][b] |= ((uint16_t)(ImageBuf[r][24*b+21] & 0x7f) >= (Image_threshold >> 3u)) << 7;
 		}
 	}
+}
+
+///////////////////////////////// frame_block_circular_buffer
+
+#define frame_block_size (160*20)
+#define frame_block_circular_buf_num 10
+#define frame_block_circular_buf_size (frame_block_circular_buf_num*frame_block_size)
+
+typedef struct {
+    char *buf; // actuall capacity = N-1
+    int write_idx; // frame idx to write into circular buf
+    int read_idx; // frame idx to read out from circular buf
+} frame_block_circular_buf;
+
+bool frame_block_is_empty(frame_block_circular_buf *buf) {
+    if (buf->read_idx == buf->write_idx) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+bool frame_block_is_full(frame_block_circular_buf *buf) {
+    if ((buf->write_idx + 1) % frame_block_circular_buf_num == buf->read_idx) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+int frame_block_buf_length(frame_block_circular_buf *buf) {
+    // NRF_GPIOTE->INTENCLR |= 0x00000080;
+    int temp = (buf->write_idx - buf->read_idx + frame_block_circular_buf_num) % frame_block_circular_buf_num;
+    // NRF_GPIOTE->INTENSET |= 0x00000080;
+    return temp;
+}
+
+int frame_block_write_in_buf(frame_block_circular_buf *buf, uint8_t *value) {
+	// for writing one Image_binary
+    if (1 + frame_block_buf_length(buf) > frame_block_circular_buf_num-1) {
+        printk("circular_buf out of range, buf_length=%d \n", frame_block_buf_length(buf));
+        return -1;
+    }
+    
+	for (int i = 0;i < frame_block_size;i++) {
+        buf->buf[buf->write_idx*frame_block_size+i] = value[i];
+    }
+	buf->write_idx = (buf->write_idx + 1) % frame_block_circular_buf_num;
+    return 0;
+}
+
+int frame_block_read_out_buf(frame_block_circular_buf *buf, uint8_t *value, uint16_t *buf_l) {
+	// for reading out multiple Image_binary
+    uint16_t L = (uint16_t)frame_block_buf_length(buf);
+	buf_l[0] = L;
+    for (int i=0;i<L;i++) {
+		for (int j = 0;j < frame_block_size;j++) {
+        	value[i*frame_block_size+j] = buf->buf[(buf->read_idx)*frame_block_size+j];
+    	}
+        buf->read_idx = (buf->read_idx + 1) % frame_block_circular_buf_num;
+    }
+    return 0;
 }
