@@ -17,6 +17,8 @@
 #include <nrfx_log.h>
 #include <nrfx_gpiote.h>
 
+#include <power/reboot.h>
+
 // define order is important, must define before use
 static int trial_count = 0;
 
@@ -389,7 +391,7 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
                 __ASSERT(result == NRFX_SUCCESS, "nrfx_i2s_next_buffers_set failed with result %d", result);
             }
             processing_buffers_1 = !processing_buffers_1;   
-
+            
             // can use this as timestamp of next audio buffer start time
             // mic_t[0] = k_cycle_get_32();
             // fs_write(&mic_file,&mic_t,sizeof(mic_t));
@@ -518,7 +520,7 @@ static void SDcard_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&SDcard_thread_semaphore, K_FOREVER) == 0) {
             // audio
-            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE); 
+            fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE);
             // IMU 
             read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
             fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
@@ -532,15 +534,58 @@ static void SDcard_thread_entry_point(void *p1, void *p2, void *p3) {
 }
 }
 
+struct k_work_delayable bl5340_vregh_reset_delayed_work;
+/** @brief Delayed work handler used to trigger a reset when VREGHVOUT changes.
+ *
+ *  @param [in]item - Delayed work item data.
+ */
+static void bl5340_vregh_reset_handler(struct k_work *item)
+{
+	/* Now reset to allow changes to take effect */
+	sys_reboot(SYS_REBOOT_WARM);
+}
+
 void main(void)
 {   
     int error;
+    bool first_i2s_config = false;
+
+    ////// set high-voltage regulator to convert VDDH=4.2V to VDD=3.7V 
+    /* Block writes if the register is already set */
+	if ((NRF_UICR->VREGHVOUT) != UICR_VREGHVOUT_VREGHVOUT_3V3) {
+    /* Enable writes to the UICR */
+	NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Wen
+			   << NVMC_CONFIG_WEN_Pos;
+	while (NRF_NVMC->READY == NVMC_READY_READY_Busy) {
+	}
+	/* Now go ahead and apply the voltage */
+	NRF_UICR->VREGHVOUT = UICR_VREGHVOUT_VREGHVOUT_3V3;
+	/* And finalise the write */
+	NRF_NVMC->CONFIG = NVMC_CONFIG_WEN_Ren
+			   << NVMC_CONFIG_WEN_Pos;
+	while (NRF_NVMC->READY == NVMC_READY_READY_Busy) {
+	}
+    k_work_init_delayable(
+					&bl5340_vregh_reset_delayed_work,
+					bl5340_vregh_reset_handler);
+	/* Then trigger it */
+	k_work_schedule(
+					&bl5340_vregh_reset_delayed_work,
+					K_MSEC(1000));
+    }
+	/* Read back to validate */
+	printk("NRF_REGULATORS->MAINREGSTATUS=0x%x, NRF_UICR->VREGHVOUT=0x%x\n", NRF_REGULATORS->MAINREGSTATUS, NRF_UICR->VREGHVOUT);     
+
+    // NRF_REGULATORS->MAINREGSTATUS = REGULATORS_MAINREGSTATUS_VREGH_Active;
+    
 
     //////////////////////////// SD card
 	
     setup_disk();
 
-    lsdir(disk_mount_pt);
+    k_msleep(1000);
+
+    trial_count = lsdir(disk_mount_pt);
 
     //////////////////////////////////////////////// bluetooth uart 
     error = bt_enable(NULL);
@@ -698,7 +743,8 @@ void main(void)
 	}
     printk("I2S device is ready\n");
 
-    if (trial_count == 0) {
+    if (!first_i2s_config) {
+        first_i2s_config = true;
     if (!configure_i2s_rx(i2s_rx_dev)) {
         printk("Failed to config streams\n", i2s_rx_dev->name);
 		return 0;

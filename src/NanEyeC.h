@@ -766,16 +766,16 @@ void NanEye_WriteFrame()
 	}
 }
 
-struct __attribute__((packed)) Bool_Byte {
-	bool x0 : 1;
-	bool x1 : 1;
-	bool x2 : 1;
-	bool x3 : 1;
-	bool x4 : 1;
-	bool x5 : 1;
-	bool x6 : 1;
-	bool x7 : 1;
-};
+// struct __attribute__((packed)) Bool_Byte {
+// 	bool x0 : 1;
+// 	bool x1 : 1;
+// 	bool x2 : 1;
+// 	bool x3 : 1;
+// 	bool x4 : 1;
+// 	bool x5 : 1;
+// 	bool x6 : 1;
+// 	bool x7 : 1;
+// };
 
 uint16_t p0, p1;
 uint16_t Image_threshold = 64;
