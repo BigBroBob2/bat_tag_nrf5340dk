@@ -1,5 +1,9 @@
 /*IMU: ICM42688*/
 
+#ifndef ICM42688_H
+#define ICM42688_H 1
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>

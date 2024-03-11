@@ -1,9 +1,16 @@
-#include "icm42688.h"
-#include "pdm_microphone.h"
-
 #ifndef BT_H
 #define BT_H 1
 #include "bt.h"
+#endif
+
+#ifndef ICM42688_H
+#define ICM42688_H 1
+#include "icm42688.h"
+#endif
+
+#ifndef MIC_H
+#define MIC_H 1
+#include "pdm_microphone.h"
 #endif
 
 #ifndef SDCARD_H
@@ -11,8 +18,18 @@
 #include "SDcard.h"
 #endif
 
+
+#ifndef CIRBUF_H
+#define CIRBUF_H 1
 #include "circular_buffer.h"
+#endif
+
+
+#ifndef NANEYEC_H
+#define NANEYEC_H 1
 #include "NanEyeC.h"
+#endif
+
 
 #include <nrfx_log.h>
 #include <nrfx_gpiote.h>
@@ -465,16 +482,6 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
 {	
 	int ret;
 
-     /* Start a dedicated, high priority thread for audio processing. */
-    k_tid_t processing_thread_tid = k_thread_create(
-        &processing_thread_data,
-        processing_thread_stack_area,
-        K_THREAD_STACK_SIZEOF(processing_thread_stack_area),
-        processing_thread_entry_point,
-        NULL, NULL, NULL,
-        PROCESSING_THREAD_PRIORITY, 0, K_NO_WAIT
-    );
-
     IRQ_DIRECT_CONNECT(I2S0_IRQn, 0, i2s_isr_handler, 0);
 
     nrfx_i2s_config_t nrfx_i2s_cfg = {
@@ -482,7 +489,7 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
         .lrck_pin = I2S_LRCK,
         .mck_pin = I2S_MCK,
         .sdin_pin = I2S_SDIN,
-        .mck_setup = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV63,
+        .mck_setup = i2s_mckfreq,
         .ratio = I2S_CONFIG_RATIO_RATIO_32X,
         .irq_priority = NRFX_I2S_DEFAULT_CONFIG_IRQ_PRIORITY,
         .mode = NRF_I2S_MODE_MASTER,
@@ -491,7 +498,7 @@ static bool configure_i2s_rx(const struct device *i2s_rx_dev)
         .channels = NRF_I2S_CHANNELS_STEREO,
         .sample_width = NRF_I2S_SWIDTH_32BIT
     };
-
+    
     nrfx_err_t result = nrfx_i2s_init(&nrfx_i2s_cfg, &nrfx_i2s_data_handler);
     if (result != NRFX_SUCCESS) {
         printk("nrfx_i2s_init failed with result %d\n", result);
@@ -548,7 +555,6 @@ static void bl5340_vregh_reset_handler(struct k_work *item)
 void main(void)
 {   
     int error;
-    bool first_i2s_config = false;
 
     ////// set high-voltage regulator to convert VDDH=4.2V to VDD=3.7V 
     /* Block writes if the register is already set */
@@ -590,10 +596,8 @@ void main(void)
     //////////////////////////////////////////////// bluetooth uart 
     error = bt_enable(NULL);
 	if (error) {
-		led_show_error();
+		printk("Bluetooth initialize error\n");
 	}
-
-    printk("Bluetooth initialized\n");
 
     k_sem_give(&ble_init_ok);
 
@@ -631,16 +635,40 @@ void main(void)
         SDcard_THREAD_PRIORITY, 0, K_NO_WAIT
     );
 
-    ///////////////////////////////////////// Here starts multiple trial loop
-    while (true) {
-    // wait for bluetooth command
+    ////////////////// wait for bluetooth connection
     while (!current_conn) {
-        printk("Trial %02d, Wait for bluetooth connection..\n", trial_count);
+        printk("Wait for bluetooth connection..\n");
         k_msleep(1000);
     } 
+    // connected
 
+    ///////////////////////////////////////// Here starts multiple trial loop
+    while (current_conn) {
+    while(!trial_start && current_conn) {
+        printk("Trial %02d, Wait for command..\n", trial_count);
+        k_msleep(1000);
+    }
 
+    // Somehow this is not working, probably only 4 files at the same time
+    // Write configuration into a file
+    // struct fs_file_t cfg_file;
+    // char filename[30];
+    // char str_buf[50];
+    // fs_file_t_init(&cfg_file);
+    // printk("Opening cfg_file path\n");
+	// sprintf(&filename, "/SD:/config_%02d.dat", trial_count); 
+    // fs_unlink(filename);
+	// error = fs_open(&cfg_file, filename, FS_O_CREATE | FS_O_WRITE);
+    // sprintf(&str_buf, "imu_fs=0x%02x, mic_fs=0x%08x\n", rate_idx, i2s_mckfreq);
+    // fs_write(&cfg_file,&str_buf,sizeof(str_buf));
+    // fs_close(&cfg_file);
+
+    // k_msleep(1000);
+    // lsdir(disk_mount_pt);
+    // k_msleep(1000);
     
+    
+    // define data files
     define_files();
 
     //////////////////////////////////////////////// SPI for second IMU
@@ -743,14 +771,21 @@ void main(void)
 	}
     printk("I2S device is ready\n");
 
-    if (!first_i2s_config) {
-        first_i2s_config = true;
+     /* Start a dedicated, high priority thread for audio processing. */
+    k_tid_t processing_thread_tid = k_thread_create(
+        &processing_thread_data,
+        processing_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(processing_thread_stack_area),
+        processing_thread_entry_point,
+        NULL, NULL, NULL,
+        PROCESSING_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+
     if (!configure_i2s_rx(i2s_rx_dev)) {
         printk("Failed to config streams\n", i2s_rx_dev->name);
 		return 0;
     }
     printk("I2S configured\n");
-    }
 
     // f_actual = f_source / floor(1048576*4096/MCKFREQ)
     printk("NRF I2S0 CONFIG.MCKFREQ = %d, f_actual = %.3f\n", NRF_I2S0->CONFIG.MCKFREQ, 0.00745*NRF_I2S0->CONFIG.MCKFREQ);
@@ -760,6 +795,7 @@ void main(void)
 
 
     ///////////////////////////////////////////////////////////////// START SAMPLE
+
      // thread for SD card
     
 
@@ -846,24 +882,20 @@ void main(void)
     // }
 
     // ReSYNC();
-    while (current_conn){
-        
-		// NanEye_ReadFrame();		
-		// Thresholding_ImageBuf();
-		// fs_write(&video_file, &Image_binary,160*20);
-        
-        k_sem_give(&camera_thread_semaphore);
-        k_msleep(50);
+    while (trial_start && current_conn){
+        // k_sem_give(&camera_thread_semaphore);
+        k_msleep(1000);
     }
     
     ///////////////////// after loop
 
     nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
                                   NRF_I2S_INT_TXPTRUPD_MASK);
-    // nrfx_i2s_stop();
+    nrfx_i2s_uninit();
     k_thread_abort(camera_thread_tid);
     k_thread_abort(ICM_thread_tid);
     k_thread_abort(H_ICM_thread_tid);
+    k_thread_abort(processing_thread_tid);
     
 
     NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
@@ -896,4 +928,7 @@ void main(void)
 
     trial_count = trial_count + 1;
 }
+
+printk("Bluetooth disconnected...Stop all\n");
+return 0;
 }

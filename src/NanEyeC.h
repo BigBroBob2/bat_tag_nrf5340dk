@@ -1,6 +1,8 @@
 // Pin assignment for camera is hardcode defined
 
-
+#ifndef NANEYEC_H
+#define NANEYEC_H 1
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -3,7 +3,11 @@
 #define BT_H 1
 #endif
 
+#include "icm42688.h"
+#include "pdm_microphone.h"
+
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
 #include <zephyr/device.h>
@@ -207,68 +211,197 @@ static struct bt_conn_auth_info_cb conn_auth_info_callbacks = {
 	.pairing_failed = pairing_failed
 };
 
+///////////////////////// nus_callback
+// This is apparently not in the C library so we make a simple one here. Find
+// first "sep"erator character in the string, and put a 0 there, and return
+// first part of string before the sep character.
+char *strtok(char *str, char sep)
+{
+	char *inc;
+
+	// Search for sep character in string.
+	for(inc=str; *inc && *inc!=sep; ++inc)
+	   ;
+	
+	*inc = 0;    // Terminate string at sep character.
+	return str;  // Return beginning of string.
+}
+
+
+char spbuf[100];
+void BLE_printf(char const *Format, ...)
+{
+  va_list ap;
+  va_start(ap, Format);
+  int len = vsnprintf(spbuf, sizeof(spbuf), Format, ap);
+  va_end(ap);
+  bt_nus_send(NULL, spbuf, len); // Send string across BLE. NULL sends to ALL connections.
+}
+
+// If wanted, can interpret sent strings as "commands", and perform some task.
+#define STR_MAX 300
+char cmdstr[STR_MAX+1];
+
+// trial_start to start a recording trial
+static bool trial_start = false;
+
+int NReceived = 0;
 static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 			  uint16_t len)
 {
 	int error;
 	char addr[BT_ADDR_LE_STR_LEN] = {0};
 
-	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, ARRAY_SIZE(addr));
+	NReceived++;
 
+	// printk ble address
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, ARRAY_SIZE(addr));
 	printk("Received data from: %s\n", addr);
 
-	
+	// Copy BLE data bytes to a null-terminated string.
+	if(len > STR_MAX) len = STR_MAX;
+	memcpy(cmdstr, data, len);
+	cmdstr[len] = 0;
+
+	//printk("Got BLE UART data (%d bytes): %.*s\n", len, len, data);
+	printk("Got BLE UART data (%d bytes): %s\n", len, cmdstr);
+
+	// Can come up with any command scheme you want. Here, we take an initial
+	// '*' to mean that we should look for a command, then we search for a
+	// matching command name.
+	if(cmdstr[0] == '*') {
+		char *cmd = strtok(cmdstr+1, ' '); // Get the first word after *
+		int cmdlen = strlen(cmd);
+		char *args = cmdstr+cmdlen+2; // remainder of string, after command token and space.
+
+		printk("Found command: '%s' (%d chars), and args '%s'\n", cmd, cmdlen, args);
+
+		// If we recognize the command, do something with it.
+		if(strcmp(cmd, "setp") == 0) {
+			// get var name and value to set
+			char *var = strtok(args, ' ');
+			args = args+strlen(var)+1;
+			char *value_str = strtok(args, ' ');
+
+			// check legal 
+			if (strcmp(var,"")==0 || strcmp(value_str,"")==0){
+				printk("Invalid command\n");
+				error = -1;
+				return error;
+			}
+
+			int value = atoi(value_str);
+
+			printk("%d\n",value);
+
+			if (strcmp(var, "imu_fs") == 0) {
+				if (value==1000) {rate_idx=6;}
+				else if (value==200) {rate_idx=7;}
+				else if (value==100) {rate_idx=8;}
+				else if (value==500) {rate_idx=15;}
+				else {
+					printk("Invalid imu_fs value, set default value 1000 Hz\n");
+					rate_idx=6;
+				}
+			}
+			else if (strcmp(var, "mic_fs") == 0) {
+				if (value==4000000) {i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV8;}
+				else if (value==3200000) {i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV10;}
+				else if (value==2000000) {i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV16;}
+				else if (value==1600000) {i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV21;}
+				else if (value==1000000) {i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32;}
+				else if (value== 800000) {i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV42;}
+				else if (value== 500000) {i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV63;}
+				else {
+					printk("Invalid mic_fs value, set default value 1000000 Hz\n");
+					i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32;
+				}
+			}
+			else {
+				printk("Invalid command\n");
+				error = -1;
+				return error;
+			}
+
+			printk("Successfully set %s\n",var);
+		}
+		else if (strcmp(cmd, "start") == 0) {
+			// start recording
+			trial_start = true;
+			printk("Trial start\n");
+		}
+		else if (strcmp(cmd, "stop") == 0) {
+			// stop recording
+			trial_start = false;
+			printk("Trial stop\n");
+		}
+		else {
+			printk("Invalid command\n");
+			error = -1;
+			return error;
+		}
+	}
+
+	k_msleep(100);
+}
+
+// Callback to count number of sent notifications.
+int NSent = 0;
+void bt_sent_cb(struct bt_conn *conn)
+{
+	++NSent;
 }
 
 static struct bt_nus_cb nus_cb = {
 	.received = bt_receive_cb,
+	.sent = bt_sent_cb,
 };
 
 
 
 
-static void num_comp_reply(bool accept)
-{
-	if (accept) {
-		bt_conn_auth_passkey_confirm(auth_conn);
-		printk("Numeric Match, conn %p\n", (void *)auth_conn);
+// static void num_comp_reply(bool accept)
+// {
+// 	if (accept) {
+// 		bt_conn_auth_passkey_confirm(auth_conn);
+// 		printk("Numeric Match, conn %p\n", (void *)auth_conn);
 
-	} else {
-		bt_conn_auth_cancel(auth_conn);
-		printk("Numeric Reject, conn %p\n", (void *)auth_conn);
+// 	} else {
+// 		bt_conn_auth_cancel(auth_conn);
+// 		printk("Numeric Reject, conn %p\n", (void *)auth_conn);
 
-		// bt_conn_unref(auth_conn);
-		auth_conn = NULL;
-}
-	}
+// 		// bt_conn_unref(auth_conn);
+// 		auth_conn = NULL;
+// }
+// 	}
 
 	
 
 // button0: true, button1: false
-void button_changed(uint32_t button_state, uint32_t has_changed)
-{
-	uint32_t buttons = button_state & has_changed;
+// void button_changed(uint32_t button_state, uint32_t has_changed)
+// {
+// 	uint32_t buttons = button_state & has_changed;
 
-	if (auth_conn) {
-		if (buttons & KEY_PASSKEY_ACCEPT) {
-			num_comp_reply(true);
-		}
+// 	if (auth_conn) {
+// 		if (buttons & KEY_PASSKEY_ACCEPT) {
+// 			num_comp_reply(true);
+// 		}
 
-		if (buttons & KEY_PASSKEY_REJECT) {
-			num_comp_reply(false);
-		}
-	}
-}
+// 		if (buttons & KEY_PASSKEY_REJECT) {
+// 			num_comp_reply(false);
+// 		}
+// 	}
+// }
 
 
 
-void led_show_error(void)
-{
-	dk_set_leds_state(DK_ALL_LEDS_MSK, DK_NO_LEDS_MSK);
+// void led_show_error(void)
+// {
+// 	dk_set_leds_state(DK_ALL_LEDS_MSK, DK_NO_LEDS_MSK);
 
-	while (true) {
-		/* Spin for ever */
-		k_sleep(K_MSEC(1000));
-	}
-}
+// 	while (true) {
+// 		/* Spin for ever */
+// 		k_sleep(K_MSEC(1000));
+// 	}
+// }
 

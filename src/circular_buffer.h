@@ -1,3 +1,7 @@
+#ifndef CIRBUF_H
+#define CIRBUF_H 1
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
