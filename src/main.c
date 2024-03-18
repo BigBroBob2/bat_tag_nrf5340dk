@@ -195,11 +195,78 @@ static frame_block_circular_buf camera_circle_buf = {
     .read_idx = 0
 };
 
+// image processing thread
+struct k_thread image_processing_thread_data;
+#define image_processing_THREAD_STACK_SIZE 512
+#define image_processing_THREAD_PRIORITY -16
+K_THREAD_STACK_DEFINE(image_processing_thread_stack_area, image_processing_THREAD_STACK_SIZE);
+K_SEM_DEFINE(image_processing_thread_semaphore, 0, 1);
+
+static void image_processing_thread_entry_point(void *p1, void *p2, void *p3) {
+    while (true) {
+        if (k_sem_take(&image_processing_thread_semaphore, K_FOREVER) == 0) {
+            uint16_t sum = 0;
+            uint16_t sum1 = 0;
+            uint16_t sum2 = 0;
+            uint16_t sum3 = 0;
+            uint16_t sum4 = 0;
+            for (int r = 0;r<80;r++) {
+                for (int b = 2;b<82;b++) {
+                    sum = 0;
+                    sum1 = 0;
+                    sum2 = 0;
+                    sum3 = 0;
+                    sum4 = 0;
+
+                    sum1 += (uint16_t)(ImageBuf[4*r][6*b] & 0x7f);
+                    sum1 += (uint16_t)(ImageBuf[4*r][6*b+3] & 0x7f);
+                    sum1 += (uint16_t)(ImageBuf[4*r+1][6*b] & 0x7f);
+                    sum1 += (uint16_t)(ImageBuf[4*r+1][6*b+3] & 0x7f);
+                    sum1 += (uint16_t)(ImageBuf[4*r+2][6*b] & 0x7f);
+                    sum1 += (uint16_t)(ImageBuf[4*r+2][6*b+3] & 0x7f);
+                    sum1 += (uint16_t)(ImageBuf[4*r+3][6*b] & 0x7f);
+                    sum1 += (uint16_t)(ImageBuf[4*r+3][6*b+3] & 0x7f);
+
+                    sum2 += (uint16_t)(ImageBuf[4*r][6*b+1] & 0xe0);
+                    sum2 += (uint16_t)(ImageBuf[4*r][6*b+4] & 0xe0);
+                    sum2 += (uint16_t)(ImageBuf[4*r+1][6*b+1] & 0xe0);
+                    sum2 += (uint16_t)(ImageBuf[4*r+1][6*b+4] & 0xe0);
+                    sum2 += (uint16_t)(ImageBuf[4*r+2][6*b+1] & 0xe0);
+                    sum2 += (uint16_t)(ImageBuf[4*r+2][6*b+4] & 0xe0);
+                    sum2 += (uint16_t)(ImageBuf[4*r+3][6*b+1] & 0xe0);
+                    sum2 += (uint16_t)(ImageBuf[4*r+3][6*b+4] & 0xe0);
+
+                    sum3 += (uint16_t)(ImageBuf[4*r][6*b+1] & 0x07);
+                    sum3 += (uint16_t)(ImageBuf[4*r][6*b+4] & 0x07);
+                    sum3 += (uint16_t)(ImageBuf[4*r+1][6*b+1] & 0x07);
+                    sum3 += (uint16_t)(ImageBuf[4*r+1][6*b+4] & 0x07);
+                    sum3 += (uint16_t)(ImageBuf[4*r+2][6*b+1] & 0x07);
+                    sum3 += (uint16_t)(ImageBuf[4*r+2][6*b+4] & 0x07);
+                    sum3 += (uint16_t)(ImageBuf[4*r+3][6*b+1] & 0x07);
+                    sum3 += (uint16_t)(ImageBuf[4*r+3][6*b+4] & 0x07);
+
+                    sum4 += (uint16_t)(ImageBuf[4*r][6*b+2] & 0xfe);
+                    sum4 += (uint16_t)(ImageBuf[4*r][6*b+5] & 0xfe);
+                    sum4 += (uint16_t)(ImageBuf[4*r+1][6*b+2] & 0xfe);
+                    sum4 += (uint16_t)(ImageBuf[4*r+1][6*b+5] & 0xfe);
+                    sum4 += (uint16_t)(ImageBuf[4*r+2][6*b+2] & 0xfe);
+                    sum4 += (uint16_t)(ImageBuf[4*r+2][6*b+5] & 0xfe);
+                    sum4 += (uint16_t)(ImageBuf[4*r+3][6*b+2] & 0xfe);
+                    sum4 += (uint16_t)(ImageBuf[4*r+3][6*b+5] & 0xfe);
+
+                    // sum = (sum1 << 3u)+(sum2 >> 5u)+(sum3 << 7u)+(sum4 >> 1u);
+                    // Image_binary[80*r+b] = (uint8_t)(sum >> 4u);
+                    Image_binary[80*r+b] = (uint8_t)((sum1 >> 1u)+(sum2 >> 9u)+(sum3 << 3u)+(sum4 >> 5u));
+                }
+            }
+            frame_block_write_in_buf(&camera_circle_buf,&Image_binary[0]);
+        }
+    }
+}
+
 // SPI camera thread
 struct k_thread camera_thread_data;
-/*ICM processing thread*/
 #define camera_THREAD_STACK_SIZE 512
-/* ICM thread is a priority cooperative thread, less than PDM mic*/
 #define camera_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(camera_thread_stack_area, camera_THREAD_STACK_SIZE);
 K_SEM_DEFINE(camera_thread_semaphore, 0, 1);
@@ -213,18 +280,26 @@ static void camera_thread_entry_point(void *p1, void *p2, void *p3) {
 
             // NanEye_ReadFrame();
             int key = irq_lock();
+            
+            // option 1: read the first 16 rows of raw data into Image_binary, frame_block_size=(492*16)
+            // spi_ReadBuffer_sleep(&Image_binary[0], 492*16, 200);
+            // for(int i=0; i < 4; ++i) {
+            //     spi_ReadBuffer_sleep(&ImageBuf[i*76+16][0], 492*76, 200);
+            // }
 
-            spi_ReadBuffer_sleep(&Image_binary[0], 492*16, 200);
+            // option 2: do 4*4 average mean, frame_block_size=(80*80)
             for(int i=0; i < 4; ++i) {
-                spi_ReadBuffer_sleep(&ImageBuf[i*76+16][0], 492*76, 200);
+                spi_ReadBuffer_sleep(&ImageBuf[i*80][0], 492*80, 200);
             }
+
             irq_unlock(key);
+
+            k_sem_give(&image_processing_thread_semaphore);
+            
             spi_ReadBytes(12); // End of frame, should be all zeros - read and discard.
             NanEye_WriteConfig();
             spi_WriteBuffer(camera_rwbuf, 966);
             spi_ReadBuffer(camera_rwbuf, 4*492);
-
-            frame_block_write_in_buf(&camera_circle_buf,&Image_binary[0]);
 
             NRF_P0->OUTCLR |= 1 << 11;
     }
@@ -625,7 +700,16 @@ void main(void)
 	NanEye_InitialConfig();
     ReSYNC();	
 
-    
+    k_tid_t image_processing_thread_tid = k_thread_create(
+        &image_processing_thread_data,
+        image_processing_thread_stack_area,
+        K_THREAD_STACK_SIZEOF(image_processing_thread_stack_area),
+        image_processing_thread_entry_point,
+        NULL, NULL, NULL,
+        image_processing_THREAD_PRIORITY, 0, K_NO_WAIT
+    );
+
+    /////////// start SD card thread
     k_tid_t SDcard_thread_tid = k_thread_create(
         &SDcard_thread_data,
         SDcard_thread_stack_area,
@@ -883,8 +967,8 @@ void main(void)
 
     // ReSYNC();
     while (trial_start && current_conn){
-        // k_sem_give(&camera_thread_semaphore);
-        k_msleep(1000);
+        k_sem_give(&camera_thread_semaphore);
+        k_msleep(50);
     }
     
     ///////////////////// after loop

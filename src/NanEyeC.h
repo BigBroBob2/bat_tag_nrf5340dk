@@ -862,17 +862,8 @@ uint16_t Image_threshold = 64;
 // 	}
 // }
 
-#define frame_block_size (492*16)
+#define frame_block_size (80*80)
 uint8_t Image_binary[frame_block_size];
-
-
-void ROI_ImageBuf() {
-	for(int r=0; r<16; r++) {
-		for(int b=0; b<492; ++b) {
-			Image_binary[r*492+b] = ImageBuf[r][b];
-		}
-	}
-}
 
 ///////////////////////////////// frame_block_circular_buffer
 
