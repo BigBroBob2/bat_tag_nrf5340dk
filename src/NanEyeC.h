@@ -865,6 +865,250 @@ uint16_t Image_threshold = 64;
 #define frame_block_size (80*80)
 uint8_t Image_binary[frame_block_size];
 
+
+//////////// configurations for bluetooth
+int8_t zoom_mode = -3;
+uint16_t zoom_center[2] = {160,252}; // from ImageBuf[320][12+480]
+
+uint16_t sum = 0;
+uint16_t sum1 = 0;
+uint16_t sum2 = 0;
+uint16_t sum3 = 0;
+uint16_t sum4 = 0;
+// ImageBuf => Image_binary
+void image_compress() {
+	// zoom_mode 2: do 4*4 average mean, frame_block_size=(80*80)
+    if (zoom_mode == 2) {
+    
+    for (int r = 0;r<80;r++) {
+        for (int b = 0;b<80;b++) {
+			// need to discard first 12 columns of ImageBuf
+
+            sum1 = (uint16_t)(ImageBuf[4*r][6*b+12] & 0x7f);
+            sum1 += (uint16_t)(ImageBuf[4*r][6*b+15] & 0x7f);
+            sum1 += (uint16_t)(ImageBuf[4*r+1][6*b+12] & 0x7f);
+            sum1 += (uint16_t)(ImageBuf[4*r+1][6*b+15] & 0x7f);
+            sum1 += (uint16_t)(ImageBuf[4*r+2][6*b+12] & 0x7f);
+            sum1 += (uint16_t)(ImageBuf[4*r+2][6*b+15] & 0x7f);
+            sum1 += (uint16_t)(ImageBuf[4*r+3][6*b+12] & 0x7f);
+            sum1 += (uint16_t)(ImageBuf[4*r+3][6*b+15] & 0x7f);
+
+            sum2 = (uint16_t)(ImageBuf[4*r][6*b+13] & 0xe0);
+            sum2 += (uint16_t)(ImageBuf[4*r][6*b+16] & 0xe0);
+            sum2 += (uint16_t)(ImageBuf[4*r+1][6*b+13] & 0xe0);
+            sum2 += (uint16_t)(ImageBuf[4*r+1][6*b+16] & 0xe0);
+            sum2 += (uint16_t)(ImageBuf[4*r+2][6*b+13] & 0xe0);
+            sum2 += (uint16_t)(ImageBuf[4*r+2][6*b+16] & 0xe0);
+            sum2 += (uint16_t)(ImageBuf[4*r+3][6*b+13] & 0xe0);
+            sum2 += (uint16_t)(ImageBuf[4*r+3][6*b+16] & 0xe0);
+
+            sum3 = (uint16_t)(ImageBuf[4*r][6*b+13] & 0x07);
+            sum3 += (uint16_t)(ImageBuf[4*r][6*b+16] & 0x07);
+            sum3 += (uint16_t)(ImageBuf[4*r+1][6*b+13] & 0x07);
+            sum3 += (uint16_t)(ImageBuf[4*r+1][6*b+16] & 0x07);
+            sum3 += (uint16_t)(ImageBuf[4*r+2][6*b+13] & 0x07);
+            sum3 += (uint16_t)(ImageBuf[4*r+2][6*b+16] & 0x07);
+            sum3 += (uint16_t)(ImageBuf[4*r+3][6*b+13] & 0x07);
+            sum3 += (uint16_t)(ImageBuf[4*r+3][6*b+16] & 0x07);
+
+            sum4 = (uint16_t)(ImageBuf[4*r][6*b+14] & 0xfe);
+            sum4 += (uint16_t)(ImageBuf[4*r][6*b+17] & 0xfe);
+            sum4 += (uint16_t)(ImageBuf[4*r+1][6*b+14] & 0xfe);
+            sum4 += (uint16_t)(ImageBuf[4*r+1][6*b+17] & 0xfe);
+            sum4 += (uint16_t)(ImageBuf[4*r+2][6*b+14] & 0xfe);
+            sum4 += (uint16_t)(ImageBuf[4*r+2][6*b+17] & 0xfe);
+            sum4 += (uint16_t)(ImageBuf[4*r+3][6*b+14] & 0xfe);
+            sum4 += (uint16_t)(ImageBuf[4*r+3][6*b+17] & 0xfe);
+
+			// sum = (sum1 << 3u)+(sum2 >> 5u)+(sum3 << 7u)+(sum4 >> 1u);
+            // Image_binary[80*r+b] = (uint8_t)(sum >> 4u);
+			sum = (sum1 >> 1u) + (sum2 >> 9u)+(sum3 << 3u) + (sum4 >> 5u);
+			if (sum > 0xff) {
+				Image_binary[80*r+b] = 0xff;
+			}
+			else {
+				Image_binary[80*r+b] = (uint8_t)sum;
+			}
+        }
+    }
+    }
+	// zoom_mode -2: do 2*2 average mean every 4*4 block, negative mode are all compromise modes to the trade-off between computation time cost and quality
+	else if (zoom_mode == -2) {
+		for (int r = 0;r<80;r++) {
+        for (int b = 0;b<80;b++) {
+		sum1 = (uint16_t)(ImageBuf[4*r][6*b+12] & 0x7f);
+        sum1 += (uint16_t)(ImageBuf[4*r+1][6*b+12] & 0x7f);
+
+
+        sum2 = (uint16_t)(ImageBuf[4*r][6*b+13] & 0xe0);
+        sum2 += (uint16_t)(ImageBuf[4*r+1][6*b+13] & 0xe0);
+
+        sum3 = (uint16_t)(ImageBuf[4*r][6*b+13] & 0x07);
+        sum3 += (uint16_t)(ImageBuf[4*r+1][6*b+13] & 0x07);
+
+        sum4 = (uint16_t)(ImageBuf[4*r][6*b+14] & 0xfe);
+        sum4 += (uint16_t)(ImageBuf[4*r+1][6*b+14] & 0xfe);
+
+		// sum = (sum1 << 3u)+(sum2 >> 5u)+(sum3 << 7u)+(sum4 >> 1u);
+        // Image_binary[80*r+b] = (uint8_t)(sum >> 2u);
+		sum = (sum1 << 1u) + (sum2 >> 7u)+(sum3 << 5u) + (sum4 >> 3u);
+			if (sum > 0xff) {
+				Image_binary[80*r+b] = 0xff;
+			}
+			else {
+				Image_binary[80*r+b] = (uint8_t)sum;
+			}
+		}
+		}
+	}
+	// zoom_mode -3: do 1*1 every 4*4 block
+	else if (zoom_mode == -3) {
+		for (int r = 0;r<80;r++) {
+        for (int b = 0;b<80;b++) {
+		sum1 = (uint16_t)(ImageBuf[4*r][6*b+12] & 0x7f);
+
+        sum2 = (uint16_t)(ImageBuf[4*r][6*b+13] & 0xe0);
+
+		sum = (sum1 << 1u) | (sum2 >> 7u);
+		if (sum > 0xff) {
+			Image_binary[80*r+b] = 0xff;
+		}
+		else {
+			Image_binary[80*r+b] = (uint8_t)sum;
+		}
+		}
+		}
+	}
+	// zoom_mode 1: do 2*2 average mean, frame_block_size=(80*80)
+	else if (zoom_mode == 1) {
+
+		// check zoom_center be in legal region
+		if (zoom_center[0] < 80) {
+			zoom_center[0] = 80;
+		}
+		else if (zoom_center[0] > 240) {
+			zoom_center[0] = 240;
+		}
+
+		if (zoom_center[1] < 132) {
+			zoom_center[1] = 132;
+		}
+		else if (zoom_center[1] > 372) {
+			zoom_center[1] = 372;
+		}
+
+    	for (int r = 0;r<80;r++) {
+    	    for (int b = 0;b<80;b++) {
+				
+    	        sum1 = (uint16_t)(ImageBuf[2*r+zoom_center[0]-80][3*b+zoom_center[1]-120] & 0x7f);
+				sum1 += (uint16_t)(ImageBuf[2*r+zoom_center[0]-79][3*b+zoom_center[1]-120] & 0x7f);
+
+				sum2 = (uint16_t)(ImageBuf[2*r+zoom_center[0]-80][3*b+zoom_center[1]-119] & 0xe0);
+				sum2 += (uint16_t)(ImageBuf[2*r+zoom_center[0]-79][3*b+zoom_center[1]-119] & 0xe0);
+
+				sum3 = (uint16_t)(ImageBuf[2*r+zoom_center[0]-80][3*b+zoom_center[1]-119] & 0x07);
+				sum3 += (uint16_t)(ImageBuf[2*r+zoom_center[0]-79][3*b+zoom_center[1]-119] & 0x07);
+
+				sum4 = (uint16_t)(ImageBuf[2*r+zoom_center[0]-80][3*b+zoom_center[1]-118] & 0xfe);
+				sum4 += (uint16_t)(ImageBuf[2*r+zoom_center[0]-79][3*b+zoom_center[1]-118] & 0xfe);
+
+				// sum = (sum1 << 3u)+(sum2 >> 5u)+(sum3 << 7u)+(sum4 >> 1u);
+				// Image_binary[80*r+b] = (uint8_t)(sum >> 2u);
+				sum = (sum1 << 1u)+(sum2 >> 7u)+(sum3 << 5u)+(sum4 >> 3u);
+				if (sum > 0xff) {
+					Image_binary[80*r+b] = 0xff;
+				}
+				else {
+					Image_binary[80*r+b] = (uint8_t)sum;
+				}
+    	    }
+		}
+	}
+	// zoom_mode -1: do 1*1 every 2*2 block
+	else if (zoom_mode == -1) {
+
+		// check zoom_center be in legal region
+		if (zoom_center[0] < 80) {
+			zoom_center[0] = 80;
+		}
+		else if (zoom_center[0] > 240) {
+			zoom_center[0] = 240;
+		}
+
+		if (zoom_center[1] < 132) {
+			zoom_center[1] = 132;
+		}
+		else if (zoom_center[1] > 372) {
+			zoom_center[1] = 372;
+		}
+
+    	for (int r = 0;r<80;r++) {
+    	    for (int b = 0;b<80;b++) {
+				
+    	        sum1 = (uint16_t)(ImageBuf[2*r+zoom_center[0]-80][3*b+zoom_center[1]-120] & 0x7f);
+
+				sum2 = (uint16_t)(ImageBuf[2*r+zoom_center[0]-80][3*b+zoom_center[1]-119] & 0xe0);
+
+				sum = (sum1 << 1u) | (sum2 >> 7u);
+				if (sum > 0xff) {
+					Image_binary[80*r+b] = 0xff;
+				}
+				else {
+					Image_binary[80*r+b] = (uint8_t)sum;
+				}
+    	    }
+		}
+	}
+	// zoom_mode 0: do 1*1, frame_block_size=(80*80)
+	else if (zoom_mode == 0) {
+
+		// check zoom_center be in legal region
+		if (zoom_center[0] < 40) {
+			zoom_center[0] = 40;
+		}
+		else if (zoom_center[0] > 280) {
+			zoom_center[0] = 280;
+		}
+
+		if (zoom_center[1] < 72) {
+			zoom_center[1] = 72;
+		}
+		else if (zoom_center[1] > 432) {
+			zoom_center[1] = 432;
+		}
+
+    	for (int r = 0;r<80;r++) {
+    	    for (int b = 0;b<40;b++) {
+				
+    	        sum1 = (uint16_t)(ImageBuf[r+zoom_center[0]-40][3*b+zoom_center[1]-60] & 0x7f);
+
+				sum2 = (uint16_t)(ImageBuf[r+zoom_center[0]-40][3*b+zoom_center[1]-59] & 0xe0);
+
+				sum3 = (uint16_t)(ImageBuf[r+zoom_center[0]-40][3*b+zoom_center[1]-59] & 0x07);
+
+				sum4 = (uint16_t)(ImageBuf[r+zoom_center[0]-40][3*b+zoom_center[1]-58] & 0xfe);
+				
+				// set max 8-bit limit
+				sum = (sum1 << 3u)+(sum2 >> 5u);
+				if (sum > 0x00ff) {
+					Image_binary[80*r+2*b] = 0xff;
+				}
+				else {
+					Image_binary[80*r+2*b] = (uint8_t)sum;
+				}
+				
+				sum = (sum3 << 7u)+(sum4 >> 1u);
+				if (sum > 0x00ff) {
+					Image_binary[80*r+2*b+1] = 0xff;
+				}
+				else {
+					Image_binary[80*r+2*b+1] = (uint8_t)sum;
+				}
+    	    }
+		}
+	}
+}
+
 ///////////////////////////////// frame_block_circular_buffer
 
 

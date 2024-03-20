@@ -5,6 +5,7 @@
 
 #include "icm42688.h"
 #include "pdm_microphone.h"
+#include "NanEyeC.h"
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -315,6 +316,18 @@ static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 				else {
 					printk("Invalid mic_fs value, set default value 1000000 Hz\n");
 					i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32;
+				}
+			}
+			else if (strcmp(var, "zoom_mode") == 0) {
+				if (value==0) {zoom_mode=0;}
+				else if (value==1) {zoom_mode=1;}
+				else if (value==-1) {zoom_mode=-1;}
+				else if (value==2) {zoom_mode=2;}
+				else if (value==-2) {zoom_mode=-2;}
+				else if (value==-3) {zoom_mode=-3;}
+				else {
+					printk("Invalid zoom_mode value, set default value -3\n");
+					zoom_mode=-3;
 				}
 			}
 			else {

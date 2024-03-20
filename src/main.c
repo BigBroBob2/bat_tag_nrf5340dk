@@ -198,68 +198,21 @@ static frame_block_circular_buf camera_circle_buf = {
 // image processing thread
 struct k_thread image_processing_thread_data;
 #define image_processing_THREAD_STACK_SIZE 512
-#define image_processing_THREAD_PRIORITY -16
+#define image_processing_THREAD_PRIORITY -12
 K_THREAD_STACK_DEFINE(image_processing_thread_stack_area, image_processing_THREAD_STACK_SIZE);
 K_SEM_DEFINE(image_processing_thread_semaphore, 0, 1);
 
 static void image_processing_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&image_processing_thread_semaphore, K_FOREVER) == 0) {
-            uint16_t sum = 0;
-            uint16_t sum1 = 0;
-            uint16_t sum2 = 0;
-            uint16_t sum3 = 0;
-            uint16_t sum4 = 0;
-            for (int r = 0;r<80;r++) {
-                for (int b = 2;b<82;b++) {
-                    sum = 0;
-                    sum1 = 0;
-                    sum2 = 0;
-                    sum3 = 0;
-                    sum4 = 0;
 
-                    sum1 += (uint16_t)(ImageBuf[4*r][6*b] & 0x7f);
-                    sum1 += (uint16_t)(ImageBuf[4*r][6*b+3] & 0x7f);
-                    sum1 += (uint16_t)(ImageBuf[4*r+1][6*b] & 0x7f);
-                    sum1 += (uint16_t)(ImageBuf[4*r+1][6*b+3] & 0x7f);
-                    sum1 += (uint16_t)(ImageBuf[4*r+2][6*b] & 0x7f);
-                    sum1 += (uint16_t)(ImageBuf[4*r+2][6*b+3] & 0x7f);
-                    sum1 += (uint16_t)(ImageBuf[4*r+3][6*b] & 0x7f);
-                    sum1 += (uint16_t)(ImageBuf[4*r+3][6*b+3] & 0x7f);
+            NRF_P0->PIN_CNF[13] = 1;
+            NRF_P0->OUTSET |= 1 << 13;
 
-                    sum2 += (uint16_t)(ImageBuf[4*r][6*b+1] & 0xe0);
-                    sum2 += (uint16_t)(ImageBuf[4*r][6*b+4] & 0xe0);
-                    sum2 += (uint16_t)(ImageBuf[4*r+1][6*b+1] & 0xe0);
-                    sum2 += (uint16_t)(ImageBuf[4*r+1][6*b+4] & 0xe0);
-                    sum2 += (uint16_t)(ImageBuf[4*r+2][6*b+1] & 0xe0);
-                    sum2 += (uint16_t)(ImageBuf[4*r+2][6*b+4] & 0xe0);
-                    sum2 += (uint16_t)(ImageBuf[4*r+3][6*b+1] & 0xe0);
-                    sum2 += (uint16_t)(ImageBuf[4*r+3][6*b+4] & 0xe0);
-
-                    sum3 += (uint16_t)(ImageBuf[4*r][6*b+1] & 0x07);
-                    sum3 += (uint16_t)(ImageBuf[4*r][6*b+4] & 0x07);
-                    sum3 += (uint16_t)(ImageBuf[4*r+1][6*b+1] & 0x07);
-                    sum3 += (uint16_t)(ImageBuf[4*r+1][6*b+4] & 0x07);
-                    sum3 += (uint16_t)(ImageBuf[4*r+2][6*b+1] & 0x07);
-                    sum3 += (uint16_t)(ImageBuf[4*r+2][6*b+4] & 0x07);
-                    sum3 += (uint16_t)(ImageBuf[4*r+3][6*b+1] & 0x07);
-                    sum3 += (uint16_t)(ImageBuf[4*r+3][6*b+4] & 0x07);
-
-                    sum4 += (uint16_t)(ImageBuf[4*r][6*b+2] & 0xfe);
-                    sum4 += (uint16_t)(ImageBuf[4*r][6*b+5] & 0xfe);
-                    sum4 += (uint16_t)(ImageBuf[4*r+1][6*b+2] & 0xfe);
-                    sum4 += (uint16_t)(ImageBuf[4*r+1][6*b+5] & 0xfe);
-                    sum4 += (uint16_t)(ImageBuf[4*r+2][6*b+2] & 0xfe);
-                    sum4 += (uint16_t)(ImageBuf[4*r+2][6*b+5] & 0xfe);
-                    sum4 += (uint16_t)(ImageBuf[4*r+3][6*b+2] & 0xfe);
-                    sum4 += (uint16_t)(ImageBuf[4*r+3][6*b+5] & 0xfe);
-
-                    // sum = (sum1 << 3u)+(sum2 >> 5u)+(sum3 << 7u)+(sum4 >> 1u);
-                    // Image_binary[80*r+b] = (uint8_t)(sum >> 4u);
-                    Image_binary[80*r+b] = (uint8_t)((sum1 >> 1u)+(sum2 >> 9u)+(sum3 << 3u)+(sum4 >> 5u));
-                }
-            }
+            image_compress();
             frame_block_write_in_buf(&camera_circle_buf,&Image_binary[0]);
+
+            NRF_P0->OUTCLR |= 1 << 13;
         }
     }
 }
@@ -281,13 +234,6 @@ static void camera_thread_entry_point(void *p1, void *p2, void *p3) {
             // NanEye_ReadFrame();
             int key = irq_lock();
             
-            // option 1: read the first 16 rows of raw data into Image_binary, frame_block_size=(492*16)
-            // spi_ReadBuffer_sleep(&Image_binary[0], 492*16, 200);
-            // for(int i=0; i < 4; ++i) {
-            //     spi_ReadBuffer_sleep(&ImageBuf[i*76+16][0], 492*76, 200);
-            // }
-
-            // option 2: do 4*4 average mean, frame_block_size=(80*80)
             for(int i=0; i < 4; ++i) {
                 spi_ReadBuffer_sleep(&ImageBuf[i*80][0], 492*80, 200);
             }
@@ -603,15 +549,17 @@ static void SDcard_thread_entry_point(void *p1, void *p2, void *p3) {
         if (k_sem_take(&SDcard_thread_semaphore, K_FOREVER) == 0) {
             // audio
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE);
+        
+            // camera
+            frame_block_read_out_buf(&camera_circle_buf,camera_buf, &camera_count);
+            // printk("camera_count=%d\n",camera_count);
+		    fs_write(&video_file, &camera_buf,camera_count*frame_block_size);
+
             // IMU 
             read_out_buf(&imu_circle_buf,imu_buf,&ICM_count);
             fs_write(&imu_file, &imu_buf,ICM_count*sizeof(short));
             read_out_buf(&H_imu_circle_buf,imu_buf,&H_ICM_count);
             fs_write(&H_imu_file, &imu_buf,H_ICM_count*sizeof(short));
-            // camera
-            frame_block_read_out_buf(&camera_circle_buf,camera_buf, &camera_count);
-            // printk("camera_count=%d\n",camera_count);
-		    fs_write(&video_file, &camera_buf,camera_count*frame_block_size);
     }
 }
 }
