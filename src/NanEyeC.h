@@ -862,7 +862,7 @@ uint16_t Image_threshold = 64;
 // 	}
 // }
 
-#define frame_block_size (80*80)
+#define frame_block_size (80*80+4) // 8-bit 80px*80px, the last 4 bytes are for timestamp 
 uint8_t Image_binary[frame_block_size];
 
 

@@ -187,6 +187,8 @@ static uint8_t camera_buf[frame_block_size*frame_block_circular_buf_num];
 static uint8_t camera_cbuf[frame_block_size*frame_block_circular_buf_num];
 static uint16_t camera_count;
 
+static uint32_t cam_t[1];
+
 // static char camera_cbuf[frame_block_circular_buf_size]; 
 // IMU sample data circular buffer
 static frame_block_circular_buf camera_circle_buf = {
@@ -210,6 +212,9 @@ static void image_processing_thread_entry_point(void *p1, void *p2, void *p3) {
             NRF_P0->OUTSET |= 1 << 13;
 
             image_compress();
+            // add timestamp
+            memcpy(&Image_binary[6400],&cam_t[0],4); 
+
             frame_block_write_in_buf(&camera_circle_buf,&Image_binary[0]);
 
             NRF_P0->OUTCLR |= 1 << 13;
@@ -227,6 +232,9 @@ K_SEM_DEFINE(camera_thread_semaphore, 0, 1);
 static void camera_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&camera_thread_semaphore, K_FOREVER) == 0) {
+
+            // can use this as timestamp of one frame
+            cam_t[0] = k_cycle_get_32();
             
             NRF_P0->PIN_CNF[11] = 1;
             NRF_P0->OUTSET |= 1 << 11;
@@ -273,12 +281,14 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&ICM_thread_semaphore, K_FOREVER) == 0) {
 
+            // get timestamp asap
+            imu_t = k_cycle_get_32();
+
             NRF_P0->PIN_CNF[12] = 1;
             NRF_P0->OUTSET |= 1 << 12;
 
             ICM_readSensor();
-             
-            imu_t = k_cycle_get_32();
+            
             IMU_data[6] = imu_t >> 16;
             IMU_data[7] = imu_t & 0x0000FFFF;
             IMU_data[8]++; 
@@ -313,10 +323,10 @@ static void H_ICM_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&H_ICM_thread_semaphore, K_FOREVER) == 0) {
             
+            H_imu_t = k_cycle_get_32();
 
             H_ICM_readSensor();
-
-            H_imu_t = k_cycle_get_32();
+            
             H_IMU_data[6] = H_imu_t >> 16;
             H_IMU_data[7] = H_imu_t & 0x0000FFFF;
             H_IMU_data[8]++;
@@ -396,11 +406,12 @@ K_SEM_DEFINE(SDcard_thread_semaphore, 0, 1);
 
 static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
-        
-
         if (k_sem_take(&processing_thread_semaphore, K_USEC(1)) == 0) {
 
-            
+            // can use this as timestamp of next audio buffer start time
+            mic_t[0] = k_cycle_get_32();
+            // fs_write(&mic_file,&mic_t,sizeof(mic_t));
+
             NRF_P0->PIN_CNF[31] = 1;
             NRF_P0->OUTSET |= 1 << 31;
 
@@ -429,34 +440,11 @@ static void processing_thread_entry_point(void *p1, void *p2, void *p3) {
                 __ASSERT(result == NRFX_SUCCESS, "nrfx_i2s_next_buffers_set failed with result %d", result);
             }
             processing_buffers_1 = !processing_buffers_1;   
-            
-            // can use this as timestamp of next audio buffer start time
-            // mic_t[0] = k_cycle_get_32();
-            // fs_write(&mic_file,&mic_t,sizeof(mic_t));
-
-            // we record IMU and change ICM_count with circular buffer during IMU data writing
-            
-
-            // NRFX_IRQ_DISABLE(GPIOTE0_IRQn);
-            // NVIC_DisableIRQ(GPIOTE0_IRQn);
-            // irq_disable(GPIOTE0_IRQn);
-            // NRF_GPIOTE->INTENCLR |= 0x00000080;
-                //read out circualr buf
-                
-
-            // NRF_GPIOTE->INTENSET |= 0x00000080;
-            // NVIC_EnableIRQ(GPIOTE0_IRQn);
-            // irq_enable(GPIOTE0_IRQn);
-            // NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
-
  
             k_sem_give(&SDcard_thread_semaphore);
             
         
             NRF_P0->OUTCLR |= 1 << 31;
-            
-            
-            
             
             /* Done audio processing */
             atomic_clear_bit(&processing_in_progress, 0);
@@ -548,6 +536,7 @@ static void SDcard_thread_entry_point(void *p1, void *p2, void *p3) {
     while (true) {
         if (k_sem_take(&SDcard_thread_semaphore, K_FOREVER) == 0) {
             // audio
+            fs_write(&mic_file,&mic_t,sizeof(mic_t));
             fs_write(&mic_file,&rx[0],AUDIO_BUFFER_BYTE_SIZE);
         
             // camera
