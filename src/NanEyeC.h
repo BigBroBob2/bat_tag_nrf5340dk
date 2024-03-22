@@ -1172,3 +1172,6 @@ int frame_block_read_out_buf(frame_block_circular_buf *buf, uint8_t *value, uint
     }
     return 0;
 }
+
+// sleep interval between 2 camera_thread_semaphore, msec
+static int cam_interval = 50;

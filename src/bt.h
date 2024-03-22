@@ -243,6 +243,11 @@ void BLE_printf(char const *Format, ...)
 #define STR_MAX 300
 char cmdstr[STR_MAX+1];
 
+// flags to enable/disable imu, H_imu, mic, cam
+static bool enable_imu = true;
+static bool enable_H_imu = true;
+static bool enable_cam = true;
+
 // trial_start to start a recording trial
 static bool trial_start = false;
 
@@ -318,6 +323,15 @@ static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 					i2s_mckfreq=I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV32;
 				}
 			}
+			if (strcmp(var, "cam_fs") == 0) {
+				if (value==20) {cam_interval=50;}
+				else if (value==10) {cam_interval=100;}
+				else if (value==5) {cam_interval=200;}
+				else {
+					printk("Invalid cam_fs value, set default value 20 Hz\n");
+					cam_interval=50;
+				}
+			}
 			else if (strcmp(var, "zoom_mode") == 0) {
 				if (value==0) {zoom_mode=0;}
 				else if (value==1) {zoom_mode=1;}
@@ -328,6 +342,30 @@ static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 				else {
 					printk("Invalid zoom_mode value, set default value -3\n");
 					zoom_mode=-3;
+				}
+			}
+			else if (strcmp(var, "enable_imu") == 0) {
+				if (value==0) {enable_imu=0;}
+				else if (value==1) {enable_imu=1;}
+				else {
+					printk("Invalid enable_imu value, set default value 1\n");
+					enable_imu=1;
+				}
+			}
+			else if (strcmp(var, "enable_H_imu") == 0) {
+				if (value==0) {enable_H_imu=0;}
+				else if (value==1) {enable_H_imu=1;}
+				else {
+					printk("Invalid enable_H_imu value, set default value 1\n");
+					enable_H_imu=1;
+				}
+			}
+			else if (strcmp(var, "enable_cam") == 0) {
+				if (value==0) {enable_cam=0;}
+				else if (value==1) {enable_cam=1;}
+				else {
+					printk("Invalid enable_cam value, set default value 1\n");
+					enable_cam=1;
 				}
 			}
 			else {

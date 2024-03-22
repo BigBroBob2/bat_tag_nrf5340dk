@@ -162,7 +162,7 @@ static int define_files() {
 		}
 
 
-    //////// imu_count_file for ICM count data
+    //////// imu_count_file for IMU count data
     // fs_file_t_init(&imu_count_file);
     // printk("Opening imu_count_file path\n");
 
@@ -260,8 +260,8 @@ static void camera_thread_entry_point(void *p1, void *p2, void *p3) {
 }
 }
 
-//////////////////////////////////////////////////////////////////////////////// ICM thread
-// SPI ICM thread
+//////////////////////////////////////////////////////////////////////////////// IMU thread
+// SPI IMU thread
 static short imu_rbuf[9]; // small read buf to get direct data each time IRQ
 static short imu_buf[N_circular_buf]; // IMU buffer
 static short imu_cw_buf[N_circular_buf]; // IMU count write buffer
@@ -270,9 +270,9 @@ static uint16_t ICM_count = 0; // sample count within the buffer, be really care
 // static uint16_t ICM_cw=0;
 
 struct k_thread ICM_thread_data;
-/*ICM processing thread*/
+/*IMU processing thread*/
 #define ICM_THREAD_STACK_SIZE 1024
-/* ICM thread is a priority cooperative thread, less than PDM mic*/
+/* IMU thread is a priority cooperative thread, less than PDM mic*/
 #define ICM_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(ICM_thread_stack_area, ICM_THREAD_STACK_SIZE);
 K_SEM_DEFINE(ICM_thread_semaphore, 0, 1);
@@ -303,7 +303,7 @@ static void ICM_thread_entry_point(void *p1, void *p2, void *p3) {
 }
 }
 
-// 2nd SPI ICM thread
+// 2nd SPI IMU thread
 static short H_imu_rbuf[9]; // small read buf to get direct data each time IRQ
 // static short H_imu_buf[N_circular_buf]; // IMU buffer
 static short H_imu_cw_buf[N_circular_buf]; // IMU count write buffer
@@ -312,9 +312,9 @@ static uint16_t H_ICM_count = 0; // sample count within the buffer, be really ca
 // static uint16_t H_ICM_cw=0;
 
 struct k_thread H_ICM_thread_data;
-/*ICM processing thread*/
+/*IMU processing thread*/
 #define H_ICM_THREAD_STACK_SIZE 1024
-/* ICM thread is a priority cooperative thread, less than PDM mic*/
+/* IMU thread is a priority cooperative thread, less than PDM mic*/
 #define H_ICM_THREAD_PRIORITY -16
 K_THREAD_STACK_DEFINE(H_ICM_thread_stack_area, H_ICM_THREAD_STACK_SIZE);
 K_SEM_DEFINE(H_ICM_thread_semaphore, 0, 1);
@@ -694,20 +694,20 @@ void main(void)
 
     //////////////////////////////////////////////// SPI for second IMU
 
-    // check ICM binding
+    if (enable_H_imu) {
+        // check IMU binding
     if (!spi_dev1) {
         printk("spi_dev1 Binding failed.");
         return;
     }
 
-    printk("Value of NRF_SPIM1->PSEL.SCK : %d \n",NRF_SPIM1->PSEL.SCK);
-    printk("Value of NRF_SPIM1->PSEL.MOSI : %d \n",NRF_SPIM1->PSEL.MOSI);
-    printk("Value of NRF_SPIM1->PSEL.MISO : %d \n",NRF_SPIM1->PSEL.MISO);
+    printk("H_IMU enabled, enable_H_imu=%d\n", enable_H_imu);
+    printk("H_IMU sampling rate imu_fs=%.2f\n", ICM_SampRate(rate_idx));
 
     /// config SPI first
     H_ICM_SPI_config();
 
-    // set ICM samping rate
+    // set IMU samping rate
     H_ICM_setSamplingRate(rate_idx);
 
     // enable interrupt
@@ -715,30 +715,27 @@ void main(void)
 
     // enable sensor
     H_ICM_enableSensor();
-
-    
-
-    
+    }
+    else {
+        printk("H_IMU disabled, enable_H_imu=%d\n", enable_H_imu);
+    }
 
     ////////////////////////////////////////////  SPI devices IMU
 
-    
-
-    // check ICM binding
+    if (enable_imu) {
+        // check IMU binding
     if (!spi_dev2) {
         printk("spi_dev2 Binding failed.");
         return;
     }
-    printk("Value of NRF_SPIM2->PSEL.SCK : %d \n",NRF_SPIM2->PSEL.SCK);
-    printk("Value of NRF_SPIM2->PSEL.MOSI : %d \n",NRF_SPIM2->PSEL.MOSI);
-    printk("Value of NRF_SPIM2->PSEL.MISO : %d \n",NRF_SPIM2->PSEL.MISO);
-    // printk("Value of NRF_SPIM2 frequency : %d \n",NRF_SPIM2->FREQUENCY);
-
+    
+    printk("IMU enabled, enable_imu=%d\n", enable_imu);
+    printk("IMU sampling rate imu_fs=%.2f\n", ICM_SampRate(rate_idx));
     
     /// config SPI first
     ICM_SPI_config();
     
-    // set ICM samping rate
+    // set IMU samping rate
     ICM_setSamplingRate(rate_idx);
 
     // enable interrupt
@@ -746,28 +743,16 @@ void main(void)
 
     // enable sensor
     ICM_enableSensor();
-
-    
-    
-    // while(1) {
-
-    //     H_ICM_readSensor();
-    //     printk("%d, %d, %d, ", H_IMU_data[0],H_IMU_data[1],H_IMU_data[2]);
-
-    //     ICM_readSensor();
-    //     printk("%d, %d, %d \n", IMU_data[0],IMU_data[1],IMU_data[2]);
-        
-    //     k_msleep(500);
-    // }
+    }
+    else {
+        printk("IMU disabled, enable_imu=%d\n", enable_imu);
+    }
 
     // GPIO configure interrupt
     // gpio_pin_interrupt_configure(GPIO_dev,ICM_INT_pin,GPIO_INT_EDGE_RISING);
     // gpio_init_callback(&ICM_INT_cb,ICM_INT_handler,BIT(ICM_INT_pin));
     // GPIOTE0 for secure
     IRQ_DIRECT_CONNECT(GPIOTE0_IRQn, 0, ICM_handler, 0);
-
-    
-
 
     // try give semaphore as IMU interrupt
     // Event mode, P0.30 for interrupt, when rising edge
@@ -783,14 +768,16 @@ void main(void)
 
     k_msleep(10);
 
+    /////////////////////// printk enable_cam
+
+    if (enable_cam) {
+        printk("cam enabled, enable_cam=%d\n", enable_cam);
+    }
+    else {
+        printk("cam disabled, enable_cam=%d\n", enable_cam);
+    }
+
     //////////////////////////////////////////////// I2S for PDM mic
-
-    const struct device *const i2s_rx_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_rx_dev));
-
-    if (!device_is_ready(i2s_rx_dev)) {
-		printk("unable to find i2s_rx device\n");	
-	}
-    printk("I2S device is ready\n");
 
      /* Start a dedicated, high priority thread for audio processing. */
     k_tid_t processing_thread_tid = k_thread_create(
@@ -802,25 +789,25 @@ void main(void)
         PROCESSING_THREAD_PRIORITY, 0, K_NO_WAIT
     );
 
-    if (!configure_i2s_rx(i2s_rx_dev)) {
+
+        if (!device_is_ready(i2s_rx_dev)) {
+		printk("unable to find i2s_rx device\n");	
+        }
+
+        if (!configure_i2s_rx(i2s_rx_dev)) {
         printk("Failed to config streams\n", i2s_rx_dev->name);
 		return 0;
-    }
-    printk("I2S configured\n");
+        }
 
-    // f_actual = f_source / floor(1048576*4096/MCKFREQ)
-    printk("NRF I2S0 CONFIG.MCKFREQ = %d, f_actual = %.3f\n", NRF_I2S0->CONFIG.MCKFREQ, 0.00745*NRF_I2S0->CONFIG.MCKFREQ);
-   
-
-    
+        // f_actual = f_source / floor(1048576*4096/MCKFREQ)
+        printk("NRF I2S0 CONFIG.MCKFREQ = %d, f_actual = %.3f\n", NRF_I2S0->CONFIG.MCKFREQ, 0.00745*NRF_I2S0->CONFIG.MCKFREQ);
 
 
     ///////////////////////////////////////////////////////////////// START SAMPLE
 
      // thread for SD card
     
-
-    // try to use thread to read ICM data
+    // try to use thread to read IMU data
     k_tid_t ICM_thread_tid = k_thread_create(
         &ICM_thread_data,
         ICM_thread_stack_area,
@@ -831,7 +818,7 @@ void main(void)
     );
     // gpio_add_callback(GPIO_dev, &ICM_INT_cb);
 
-    // use another thread to read 2nd ICM data
+    // use another thread to read 2nd IMU data
     k_tid_t H_ICM_thread_tid = k_thread_create(
         &H_ICM_thread_data,
         H_ICM_thread_stack_area,
@@ -862,27 +849,38 @@ void main(void)
     H_IMU_data[8] = 0;
 
     
-    printk("Starting I2S stream..\n");
+    printk("Start recording..\n");
 
     // start I2S
     error = nrfx_i2s_start(&nrfx_i2s_buffers_1, AUDIO_BUFFER_WORD_SIZE, 0);
     
     nrf_i2s_int_enable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
                                   NRF_I2S_INT_TXPTRUPD_MASK);
+    
 
     // enable GPIOTE
-    NRF_GPIOTE0->EVENTS_IN[7] = 0;
-    NRF_GPIOTE->INTENSET |= 0x00000080;
-    NRF_GPIOTE0->EVENTS_IN[6] = 0;
-    NRF_GPIOTE->INTENSET |= 0x00000040;
+    if (enable_imu) {
+         NRF_GPIOTE0->EVENTS_IN[7] = 0;
+        NRF_GPIOTE->INTENSET |= 0x00000080;
+    }
+    if (enable_H_imu) {
+        NRF_GPIOTE0->EVENTS_IN[6] = 0;
+        NRF_GPIOTE->INTENSET |= 0x00000040;
+    }
+    
     // enable gpiote event (IMU INT)
-    nrf_gpiote_event_enable(NRF_GPIOTE0, 7);
-    nrf_gpiote_event_enable(NRF_GPIOTE0, 6);
+    if (enable_imu) {
+        nrf_gpiote_event_enable(NRF_GPIOTE0, 7);
+    }
+    
+    if (enable_H_imu) {
+        nrf_gpiote_event_enable(NRF_GPIOTE0, 6);
+    }
+    
     // enable GPIOTE IRQ
     NRFX_IRQ_ENABLE(GPIOTE0_IRQn);
     NVIC_EnableIRQ(GPIOTE0_IRQn);
     irq_enable(GPIOTE0_IRQn);
-
 
 
     // start camera
@@ -896,23 +894,23 @@ void main(void)
     );
     
     ///////////////////////////////////////// loop
-    // while (current_conn) 
-    // {   
-    //     printk("buf_length_imu=%d, buf_length_H_imu=%d\n",buf_length(&imu_circle_buf),buf_length(&H_imu_circle_buf));
-    //     k_msleep(1);
-    // }
-
-    // ReSYNC();
-    while (trial_start && current_conn){
-        k_sem_give(&camera_thread_semaphore);
-        k_msleep(50);
+    if (enable_cam) {
+        while (trial_start && current_conn){
+            k_sem_give(&camera_thread_semaphore);
+            k_msleep(cam_interval);
+        }
+    }
+    else {
+        while (trial_start && current_conn){
+            k_msleep(1000);
+        }
     }
     
     ///////////////////// after loop
-
     nrf_i2s_int_disable(NRF_I2S0, NRF_I2S_INT_RXPTRUPD_MASK |
                                   NRF_I2S_INT_TXPTRUPD_MASK);
     nrfx_i2s_uninit();
+    
     k_thread_abort(camera_thread_tid);
     k_thread_abort(ICM_thread_tid);
     k_thread_abort(H_ICM_thread_tid);
@@ -923,16 +921,18 @@ void main(void)
     NVIC_DisableIRQ(GPIOTE0_IRQn);
     irq_disable(GPIOTE0_IRQn);
 
-    NRF_GPIOTE->INTENCLR |= 0x00000080;
-    nrf_gpiote_event_disable(NRF_GPIOTE0, 7);
-    NRF_GPIOTE->INTENCLR |= 0x00000040;
+    if (enable_imu) {
+        NRF_GPIOTE->INTENCLR |= 0x00000080;
+        nrf_gpiote_event_disable(NRF_GPIOTE0, 7);
+    }
+    if (enable_H_imu) {
+        NRF_GPIOTE->INTENCLR |= 0x00000040;
     nrf_gpiote_event_disable(NRF_GPIOTE0, 6);
-
-    
+    } 
 
     k_msleep(1000);
 
-	printk("Stream stopped\n");
+	printk("Recording stopped\n");
 
 	printk("File named in trial %02d successfully created\n", trial_count);		
 	fs_close(&mic_file);
