@@ -568,7 +568,8 @@ void main(void)
 {   
     int error;
 
-    ////// set high-voltage regulator to convert VDDH=4.2V to VDD=3.7V 
+    ////// set high-voltage regulator to convert VDDH=4.2V to VDD=3.7V
+    ////// high-voltage mode VDD can be very noisy and because of this SD card cannot work normally, need to add capacitor between VDD and GND 
     /* Block writes if the register is already set */
 	if ((NRF_UICR->VREGHVOUT) != UICR_VREGHVOUT_VREGHVOUT_3V3) {
     /* Enable writes to the UICR */
@@ -628,14 +629,7 @@ void main(void)
 		printk("Advertising failed to start (error %d)\n", error);
 		return 0;
 	}
-
-
-    //////////////// Init NanEyeC camera
-    NRF_P0->PIN_CNF[SCLK_pin] = 0;
-	NRF_P0->PIN_CNF[SDAT_pin] = 0;
-    InitSPI();
-	NanEye_InitialConfig();
-    ReSYNC();	
+    	
 
     k_tid_t image_processing_thread_tid = k_thread_create(
         &image_processing_thread_data,
@@ -691,6 +685,14 @@ void main(void)
     
     // define data files
     define_files();
+
+    //////////////// Init NanEyeC camera
+    NRF_P0->PIN_CNF[SCLK_pin] = 0;
+	NRF_P0->PIN_CNF[SDAT_pin] = 0;
+    InitSPI();
+	NanEye_InitialConfig();
+    ReSYNC();
+
 
     //////////////////////////////////////////////// SPI for second IMU
 
