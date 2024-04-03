@@ -41,8 +41,6 @@ static int trial_count = 0;
 
 /////////////////////////////////////////////////////////////////////////// Define circular buffer
 
-
-
 // IMU circular buffer
 static short imu_cbuf[N_circular_buf]; 
 // IMU sample data circular buffer
@@ -51,18 +49,6 @@ static circular_buf imu_circle_buf = {
     .write_idx = 0,
     .read_idx = 0
 };
-
-// IMU count circular buffer
-// static uint16_t imu_count_idx[1]={0};
-// static short imu_count_buf[N_circular_buf]; 
-// // IMU sample count circular buffer
-// circular_buf count_circle_buf = {
-//     .buf = imu_count_buf,
-//     .write_idx = 0,
-//     .read_idx = 0
-// };
-
-
 
 // 2nd SPI IMU circular buffer
 static short H_imu_cbuf[N_circular_buf]; 
@@ -73,15 +59,6 @@ static circular_buf H_imu_circle_buf = {
     .read_idx = 0
 };
 
-// 2nd SPI IMU count circular buffer
-// static uint16_t H_imu_count_idx[1]={0};
-// static short H_imu_count_buf[N_circular_buf]; 
-// // 2nd SPI IMU sample count circular buffer
-// circular_buf H_count_circle_buf = {
-//     .buf = H_imu_count_buf,
-//     .write_idx = 0,
-//     .read_idx = 0
-// };
 /////////////////////////////////////////////////////////////////////////// finish define circular buf
 
 //// SD card data file
@@ -832,17 +809,15 @@ void main(void)
 
     // reset cirular buffer idx and processing_buffers
         // Reset variables at the start of each trial
-    // imu_count_idx[0]=0;
     imu_circle_buf.read_idx = 0;
     imu_circle_buf.write_idx = 0;
-    // count_circle_buf.read_idx = 0;
-    // count_circle_buf.write_idx = 0;
 
-    // H_imu_count_idx[0]=0;
     H_imu_circle_buf.read_idx = 0;
     H_imu_circle_buf.write_idx = 0;
-    // H_count_circle_buf.read_idx = 0;
-    // H_count_circle_buf.write_idx = 0;
+
+    camera_circle_buf.read_idx = 0;
+    camera_circle_buf.write_idx = 0;
+
 
     processing_buffers_1 = 0;  
 
