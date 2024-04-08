@@ -30,4 +30,4 @@ typedef struct {
   void* cb_data;
 } audio_callbacks_t;
 
-
+const struct device *const i2s_rx_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_rx_dev));
