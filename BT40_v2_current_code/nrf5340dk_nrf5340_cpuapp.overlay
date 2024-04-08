@@ -1,0 +1,155 @@
+/*
+Only one of the following peripherals can be enabled: SPI1, SPIM1, SPIS1, TWI1, TWIM1, TWIS1, UARTE1
+if instance x (where 0<=x<=3) is used by one of the peripherals, none of the other peripherals can use the same instance.
+https://devzone.nordicsemi.com/f/nordic-q-a/62899/nrf9160---only-one-of-the-following-peripherals-can-be-enabled-spi1-uarte1-why
+*/
+
+// NanEyeC camera uses spi0
+// Up to 32 Mbps SPI when using dedicated pins
+// p0.08-p0.12 on nrf5340DK are for 32MHz high-speed SPIM4
+// p0.04, p0.05, p0.11, p0.12 on BT40 are for high speed SPI
+spi_dev4: &spi4 {
+	status = "okay";
+	cs-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
+	compatible = "nordic,nrf-spim";
+	pinctrl-0 = <&spi4_default>;
+	pinctrl-1 = <&spi4_sleep>;
+	pinctrl-names = "default", "sleep";
+	// clock-frequency = <8000000>; 
+};
+
+// ICM42688 
+spi_dev2: &spi2 {
+	status = "okay";
+	cs-gpios = <&gpio0 24 GPIO_ACTIVE_LOW>;
+	compatible = "nordic,nrf-spim";
+	pinctrl-0 = <&spi2_default>;
+	pinctrl-1 = <&spi2_sleep>;
+	pinctrl-names = "default", "sleep";
+	// clock-frequency = <8000000>; 
+};
+
+
+// second ICM42688 with SPI
+// We should try to use all pins on gpio0 (or maybe all pins on gpio1); Define pins on both can lead to noisy and delayed IMU signals
+spi_dev1: &spi1 {
+	status = "okay";
+	cs-gpios = <&gpio0 29 GPIO_ACTIVE_LOW>;
+	compatible = "nordic,nrf-spim";
+	pinctrl-0 = <&spi1_default>;
+	pinctrl-1 = <&spi1_sleep>;
+	pinctrl-names = "default", "sleep";
+	// clock-frequency = <8000000>; 
+};
+
+
+
+///////// I2S interface
+i2s_rx_dev: &i2s0 {
+	status = "okay";
+	pinctrl-0 = <&i2s0_default>;
+	pinctrl-names = "default";
+	// clock-source = "ACLK";
+};
+
+&pinctrl {
+
+	spi1_default: spi1_default{
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 27)>,
+				<NRF_PSEL(SPIM_SCK, 0, 26)>,
+				<NRF_PSEL(SPIM_MISO, 0, 28)>;
+		};
+	};
+
+	spi1_sleep: spi1_sleep{
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 27)>,
+				<NRF_PSEL(SPIM_SCK, 0, 26)>,
+				<NRF_PSEL(SPIM_MISO, 0, 28)>;
+			low-power-enable;
+		};
+	};
+
+
+	spi2_default: spi2_default{
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+				<NRF_PSEL(SPIM_SCK, 0, 6)>,
+				<NRF_PSEL(SPIM_MISO, 0, 21)>;
+		};
+	};
+
+	spi2_sleep: spi2_sleep{
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 7)>,
+				<NRF_PSEL(SPIM_SCK, 0, 6)>,
+				<NRF_PSEL(SPIM_MISO, 0, 21)>;
+			low-power-enable;
+		};
+	};
+
+
+	// We now use I2S interface instead of PDM to get bit stream
+	i2s0_default: i2s0_default{
+		group1{
+			// need to define MCK, LRCK_M, even though we don't wire them with PDM mic
+			// otherwise I2S driver will not work
+			psels = <NRF_PSEL(I2S_MCK,1,9)>,
+					<NRF_PSEL(I2S_SCK_M,1,10)>,
+					<NRF_PSEL(I2S_LRCK_M,1,12)>,
+					<NRF_PSEL(I2S_SDIN,1,11)>;				
+		};
+	};
+
+	spi3_default: spi3_default{
+		group1 {
+			psels = <NRF_PSEL(SPIM_SCK, 1, 4)>,
+					<NRF_PSEL(SPIM_MISO, 1, 6)>,
+					<NRF_PSEL(SPIM_MOSI, 1, 5)>;
+		};
+	};
+
+	spi4_default: spi4_default{
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 9)>,
+				<NRF_PSEL(SPIM_SCK, 0, 8)>,
+				<NRF_PSEL(SPIM_MISO, 0, 9)>;
+		};
+	};
+
+	spi4_sleep: spi4_sleep{
+		group1 {
+			psels = <NRF_PSEL(SPIM_MOSI, 0, 9)>,
+				<NRF_PSEL(SPIM_SCK, 0, 8)>,
+				<NRF_PSEL(SPIM_MISO, 0, 9)>;
+			low-power-enable;
+		};
+	};
+};
+
+// UART
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+	};
+};
+
+
+// SD card with SPI interface
+&spi3 {
+	status = "okay";
+	cs-gpios = <&gpio1 7 GPIO_ACTIVE_LOW>;
+	pinctrl-0 = <&spi3_default>;
+	pinctrl-names = "default";
+	sdhc0: sdhc@0 {
+			compatible = "zephyr,sdhc-spi-slot";
+			reg = <0>;
+			status = "okay";
+			mmc {
+				compatible = "zephyr,sdmmc-disk";
+				status = "okay";
+			};
+			spi-max-frequency = <8000000>;
+	};
+};

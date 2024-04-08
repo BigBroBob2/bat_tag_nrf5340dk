@@ -2,6 +2,10 @@
 Use I2S interface to transfer bit stream from PDM microphone
 */
 
+#ifndef MIC_H
+#define MIC_H 1
+#endif
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -31,3 +35,5 @@ typedef struct {
 } audio_callbacks_t;
 
 const struct device *const i2s_rx_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_rx_dev));
+
+static int i2s_mckfreq = I2S_CONFIG_MCKFREQ_MCKFREQ_32MDIV63;
